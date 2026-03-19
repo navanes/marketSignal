@@ -1,0 +1,413 @@
+{
+  "Control Air": {
+    "data": {
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "92807",
+      "pallet_count": 1,
+      "length_in": 51.0,
+      "width_in": 42.0,
+      "height_in": 45.0,
+      "weight_lb": 1470.0,
+      "pieces": 30,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Anaheim",
+      "shipment_date": "2026-03-12",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 99.54,
+      "transit_days": 1,
+      "source": "",
+      "quoted_at": "2026-03-19",
+      "origin_zip": "91342",
+      "destination_zip": "92807",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Anaheim",
+      "pallets": "1",
+      "pieces": "30",
+      "length": "51",
+      "width": "42",
+      "height": "45",
+      "weight": "1470",
+      "freight_class": "65"
+    }
+  },
+  "Acco": {
+    "data": {
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "94577",
+      "pallet_count": 1,
+      "length_in": 50.0,
+      "width_in": 42.0,
+      "height_in": 19.0,
+      "weight_lb": 750.0,
+      "pieces": 12,
+      "freight_class": "60",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "San Leandro",
+      "shipment_date": "2026-03-12",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "MYCARRIER",
+      "price": 147.67,
+      "transit_days": 2,
+      "quoted_at": "2026-03-19"
+    }
+  },
+  "Omni Duct - AZ": {
+    "data": {
+      "company_name": "Omni Duct - AZ",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "85009",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 19.0,
+      "weight_lb": 450.0,
+      "pieces": 8,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Phoenix",
+      "shipment_date": "2026-03-16",
+      "pallet_items": []
+    },
+    "last_quote_summary": {}
+  },
+  "Hercules UT": {
+    "data": {
+      "company_name": "Hercules UT",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "84116",
+      "pallet_count": 2,
+      "length_in": 50.0,
+      "width_in": 50.0,
+      "height_in": 63.0,
+      "weight_lb": 4300.0,
+      "pieces": 128,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "SALT LAKE CITY",
+      "shipment_date": "2026-03-16",
+      "pallet_items": [
+        {
+          "pallet_number": 1,
+          "pieces": 64,
+          "length_in": 50.0,
+          "width_in": 50.0,
+          "height_in": 63.0,
+          "weight_lb": 2150.0,
+          "freight_class": "65"
+        },
+        {
+          "pallet_number": 2,
+          "pieces": 64,
+          "length_in": 50.0,
+          "width_in": 50.0,
+          "height_in": 63.0,
+          "weight_lb": 2150.0,
+          "freight_class": "65"
+        }
+      ]
+    },
+    "last_quote_summary": {
+      "carrier": "CENTRAL TRANSPORTATION",
+      "price": 398.43,
+      "transit_days": 2,
+      "quoted_at": "2026-03-16"
+    }
+  },
+  "Spiral Fitting": {
+    "data": {
+      "company_name": "Spiral Fitting",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "29440",
+      "pallet_count": 1,
+      "length_in": 50.0,
+      "width_in": 50.0,
+      "height_in": 42.0,
+      "weight_lb": 1570.0,
+      "pieces": 34,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Gerogetown",
+      "shipment_date": "2026-03-18",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "CENTRAL TRANSPORTATION",
+      "price": 474.96,
+      "transit_days": null,
+      "quoted_at": "2026-03-18"
+    }
+  },
+  "Acosta": {
+    "data": {
+      "company_name": "Spiral Fitting",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "95122",
+      "pallet_count": 1,
+      "length_in": 53.0,
+      "width_in": 53.0,
+      "height_in": 57.0,
+      "weight_lb": 2660.0,
+      "pieces": 57,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "San Jose",
+      "shipment_date": "2026-03-18",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 328.5,
+      "transit_days": 1,
+      "quoted_at": "2026-03-18"
+    }
+  },
+  "American Inc": {
+    "data": {
+      "company_name": "American Inc",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "93291",
+      "pallet_count": 2,
+      "length_in": 52.0,
+      "width_in": 48.0,
+      "height_in": 59.0,
+      "weight_lb": 900.0,
+      "pieces": 178,
+      "freight_class": "175",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Visalia",
+      "shipment_date": "2026-03-18",
+      "pallet_items": [
+        {
+          "pallet_number": 1,
+          "pieces": 101,
+          "length_in": 52.0,
+          "width_in": 48.0,
+          "height_in": 59.0,
+          "weight_lb": 500.0,
+          "freight_class": "175"
+        },
+        {
+          "pallet_number": 2,
+          "pieces": 77,
+          "length_in": 53.0,
+          "width_in": 52.0,
+          "height_in": 47.0,
+          "weight_lb": 400.0,
+          "freight_class": "175"
+        }
+      ]
+    },
+    "last_quote_summary": {
+      "carrier": "MYCARRIER",
+      "price": 248.28,
+      "transit_days": 1,
+      "quoted_at": "2026-03-18"
+    }
+  },
+  "Omni Duct - Sac": {
+    "data": {
+      "company_name": "Omni Duct - Sac",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "95691",
+      "pallet_count": 2,
+      "length_in": 49.0,
+      "width_in": 44.0,
+      "height_in": 21.0,
+      "weight_lb": 1430.0,
+      "pieces": 248,
+      "freight_class": "85",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Sacramento",
+      "shipment_date": "2026-03-18",
+      "pallet_items": [
+        {
+          "pallet_number": 1,
+          "pieces": 8,
+          "length_in": 49.0,
+          "width_in": 44.0,
+          "height_in": 21.0,
+          "weight_lb": 580.0,
+          "freight_class": "70"
+        },
+        {
+          "pallet_number": 2,
+          "pieces": 240,
+          "length_in": 50.0,
+          "width_in": 43.0,
+          "height_in": 73.0,
+          "weight_lb": 850.0,
+          "freight_class": "100"
+        }
+      ]
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 169.5,
+      "transit_days": 1,
+      "quoted_at": "2026-03-18"
+    }
+  },
+  "TRU-DUCT": {
+    "data": {
+      "company_name": "TRU-DUCT",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "92054",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 20.0,
+      "weight_lb": 300.0,
+      "pieces": 4,
+      "freight_class": "85",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "OCEANSIDE CA",
+      "shipment_date": "2026-03-18",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 112.26,
+      "transit_days": 1,
+      "quoted_at": "2026-03-18"
+    }
+  },
+  "AIR-DUCT CORONA": {
+    "data": {
+      "company_name": "AIR-DUCT CORONA",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "92879",
+      "pallet_count": 1,
+      "length_in": 42.0,
+      "width_in": 48.0,
+      "height_in": 20.0,
+      "weight_lb": 290.0,
+      "pieces": 4,
+      "freight_class": "85",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "CORONA",
+      "shipment_date": "2026-03-18",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "TOTAL",
+      "price": 98.32,
+      "transit_days": 1,
+      "source": "",
+      "quoted_at": "2026-03-19",
+      "origin_zip": "91342",
+      "destination_zip": "92879",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "CORONA",
+      "pallets": "1",
+      "pieces": "4",
+      "length": "42",
+      "width": "48",
+      "height": "20",
+      "weight": "290",
+      "freight_class": "85"
+    }
+  },
+  "Airlink": {
+    "data": {
+      "company_name": "Airlink",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "92806",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 30.0,
+      "weight_lb": 1000.0,
+      "pieces": 30,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Anaheim",
+      "shipment_date": "2026-03-18",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "TOTAL",
+      "price": 98.32,
+      "transit_days": 1,
+      "quoted_at": "2026-03-18"
+    }
+  },
+  "Hercules Denver, CO": {
+    "data": {
+      "company_name": "Hercules Denver, CO",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "80223",
+      "pallet_count": 1,
+      "length_in": 52.0,
+      "width_in": 52.0,
+      "height_in": 57.0,
+      "weight_lb": 2420.0,
+      "pieces": 57,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "DENVER",
+      "shipment_date": "2026-03-19",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "MYCARRIER",
+      "price": 337.36,
+      "transit_days": 3,
+      "quoted_at": "2026-03-19"
+    }
+  },
+  "Sheet Metal Connectors": {
+    "data": {
+      "company_name": "Sheet Metal Connectors",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "55432",
+      "pallet_count": 1,
+      "length_in": 50.0,
+      "width_in": 50.0,
+      "height_in": 44.0,
+      "weight_lb": 1730.0,
+      "pieces": 40,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Minneapolis, MN",
+      "shipment_date": "2026-03-19",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "XPO LTL",
+      "price": 395.67,
+      "transit_days": 4,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-19",
+      "origin_zip": "91342",
+      "destination_zip": "55432",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Minneapolis, MN",
+      "pallets": "1",
+      "pieces": "40",
+      "length": "50",
+      "width": "50",
+      "height": "44",
+      "weight": "1730",
+      "freight_class": "65"
+    }
+  }
+}

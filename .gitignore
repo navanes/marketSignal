@@ -1,0 +1,26 @@
+.DS_Store
+.env
+.venv/
+.vscode/
+__pycache__/
+*.pyc
+webapp/.venv/
+webapp/__pycache__/
+
+service_account.json
+
+mycarrier_after_login.html
+mycarrier_login.html
+mycarrier_login2.html
+mycarrier_password.html
+mycarrier_quote_page.html
+mycarrier_results.html
+results_not_found.html
+results_scrape_empty.txt
+tforce_rate_estimate_missing_url.txt
+
+tforce_*.png
+mycarrier_*.png
+*_failed.png
+*_missing.png
+webapp/  static/

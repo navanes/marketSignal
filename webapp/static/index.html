@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Freight Quote Agent</title>
+  <style>
+    :root {
+      --bg: #eef3ea;
+      --panel: #fffdf7;
+      --ink: #1e2a1f;
+      --muted: #5b6a5c;
+      --line: #c9d5c4;
+      --brand: #1f6b4f;
+      --brand-2: #d7a33d;
+      --danger: #b42318;
+      --ok: #0f7b38;
+      --shadow: 0 18px 50px rgba(31, 54, 34, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(215, 163, 61, 0.18), transparent 24rem),
+        linear-gradient(180deg, #f8fbf3, var(--bg));
+    }
+
+    .shell {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 22px;
+      margin-bottom: 22px;
+    }
+
+    .hero-card,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      padding: 28px;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: #eef6ec;
+      color: var(--brand);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 14px 0 10px;
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: .95;
+    }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.5;
+    }
+
+    .summary {
+      padding: 24px;
+      display: grid;
+      gap: 14px;
+      align-content: center;
+      justify-items: center;
+      background:
+        linear-gradient(145deg, rgba(31,107,79,.08), rgba(215,163,61,.16)),
+        var(--panel);
+    }
+
+    .summary img {
+      display: block;
+      width: min(100%, 280px);
+      height: auto;
+      object-fit: contain;
+      filter: sepia(0.5) saturate(0.45) hue-rotate(12deg) brightness(0.34) contrast(1.2);
+      opacity: 1;
+    }
+
+    .summary h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .summary p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .panel {
+      padding: 24px;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .panel-head p {
+      margin: 4px 0 0;
+      color: var(--muted);
+    }
+
+    form {
+      display: grid;
+      gap: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    label {
+      font-size: 13px;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 16px;
+    }
+
+    select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 16px;
+    }
+
+    input:focus {
+      outline: 2px solid rgba(31, 107, 79, 0.18);
+      border-color: var(--brand);
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 18px;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .15s ease, opacity .15s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: .6; cursor: wait; transform: none; }
+
+    .primary {
+      background: var(--brand);
+      color: white;
+    }
+
+    .secondary {
+      background: #edf3eb;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    .danger {
+      background: #9d1c1c;
+      color: white;
+    }
+
+    .status {
+      min-height: 24px;
+      font-weight: 700;
+    }
+
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--danger); }
+
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .profile-summary {
+      display: none;
+      min-height: 18px;
+      line-height: 1.5;
+    }
+
+    .profile-summary.show {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid #b7d2c2;
+      background: linear-gradient(135deg, #eef8f2, #f9f1dc);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+    }
+
+    .profile-summary .ps-top {
+      color: var(--brand);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .profile-summary .ps-main {
+      color: #123d2c;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .profile-summary .ps-line {
+      color: #5b6a5c;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .company-picker {
+      position: relative;
+    }
+
+    .company-dropdown {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      z-index: 30;
+      max-height: 220px;
+      overflow-y: auto;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fff;
+      box-shadow: 0 18px 40px rgba(31, 54, 34, 0.12);
+      display: none;
+      padding: 6px;
+    }
+
+    .company-dropdown.show {
+      display: grid;
+      gap: 4px;
+    }
+
+    .company-option {
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 15px;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .company-option:hover,
+    .company-option.active {
+      background: #eef6ec;
+      color: var(--brand);
+      transform: none;
+    }
+
+    .company-empty {
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .result {
+      margin-top: 18px;
+      padding: 16px;
+      border-radius: 18px;
+      background: #f7faf5;
+      border: 1px solid var(--line);
+      display: none;
+    }
+
+    .result.show { display: block; }
+
+    .result-list {
+      display: grid;
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .report-banner {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, #eef6ec, #fff8e7);
+      display: none;
+      gap: 8px;
+    }
+
+    .report-banner.show {
+      display: grid;
+    }
+
+    .report-banner .eyebrow-line {
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      font-weight: 700;
+    }
+
+    .report-banner .headline {
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .report-banner .detail {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .result-item {
+      padding: 14px;
+      border-radius: 16px;
+      background: white;
+      border: 1px solid var(--line);
+    }
+
+    .result-item h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+
+    .result-meta {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px 14px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .result-debug {
+      margin-top: 10px;
+      color: #7a3e00;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .broker-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .broker-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #fbfdf8;
+      font-size: 13px;
+    }
+
+    .broker-row strong {
+      color: var(--ink);
+      font-size: 14px;
+    }
+
+    .result-skip {
+      margin-top: 10px;
+      color: var(--danger);
+      font-size: 13px;
+      line-height: 1.5;
+      font-weight: 700;
+    }
+
+    .calc-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f7fbf2, #eff6eb);
+      border: 1px solid var(--line);
+    }
+
+    .calc-card {
+      padding: 12px;
+      border-radius: 14px;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    .calc-card .k {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .calc-card .v {
+      display: block;
+      margin-top: 6px;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--brand);
+    }
+
+    .pallet-editor {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-radius: 18px;
+      background: #f7faf5;
+      border: 1px solid var(--line);
+    }
+
+    .pallet-card {
+      padding: 14px;
+      border-radius: 16px;
+      background: white;
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 12px;
+    }
+
+    .pallet-card h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .pallet-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .metric {
+      padding: 12px;
+      border-radius: 14px;
+      background: white;
+      border: 1px solid var(--line);
+    }
+
+    .metric .k {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .metric .v {
+      display: block;
+      margin-top: 6px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 900px) {
+      .hero,
+      .grid,
+      .calc-strip,
+      .pallet-grid,
+      .result-meta,
+      .result-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-card">
+        <span class="eyebrow">Local Control Panel</span>
+        <h1>Freight Quote Agent</h1>
+        <p class="sub">Enter the same fields you use in the Google Sheet, then run the full flow from one button: write the input, rebuild broker rows, and fetch the carrier quotes.</p>
+      </div>
+      <aside class="summary">
+        <img src="/Windgate.png" alt="Windgate Products" />
+      </aside>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Quote Request</h2>
+          <p>This runs on your machine. Keep the browser windows open while the carrier automations are working.</p>
+        </div>
+      </div>
+
+      <form id="quote-form" autocomplete="off">
+        <div class="grid">
+          <div class="field">
+            <label for="profile_select">Saved Company</label>
+            <div class="company-picker">
+              <input id="profile_select" name="profile_select" placeholder="Select or type a company" autocomplete="off" />
+              <div id="profile_dropdown" class="company-dropdown"></div>
+            </div>
+            <div id="profile-summary" class="profile-summary"></div>
+          </div>
+          <div class="field">
+            <label for="profile_name">Save Company Name</label>
+            <input id="profile_name" name="profile_name" placeholder="Example: Acme Corp" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="order_number">Order Number</label>
+            <input id="order_number" name="order_number" placeholder="Optional" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="shipment_date">Shipment Date</label>
+            <input id="shipment_date" name="shipment_date" type="date" value="" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="origin_zip">Origin ZIP</label>
+            <input id="origin_zip" name="origin_zip" inputmode="numeric" value="91342" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="destination_zip">Destination ZIP</label>
+            <input id="destination_zip" name="destination_zip" inputmode="numeric" value="" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="pickup_city">Pickup City</label>
+            <input id="pickup_city" name="pickup_city" value="SYLMAR, CA" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="delivery_city">Delivery City</label>
+            <input id="delivery_city" name="delivery_city" value="" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="pallet_count">Pallet Count</label>
+            <input id="pallet_count" name="pallet_count" type="number" min="1" step="1" value="" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="pieces">Pieces</label>
+            <input id="pieces" name="pieces" type="number" min="1" step="1" value="" autocomplete="off" required />
+          </div>
+          <div class="field full hidden" id="single-pallet-fields">
+            <div class="grid">
+          <div class="field">
+            <label for="length_in">Length (in)</label>
+            <input id="length_in" name="length_in" type="number" min="0" step="0.01" value="" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="width_in">Width (in)</label>
+            <input id="width_in" name="width_in" type="number" min="0" step="0.01" value="" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="height_in">Height (in)</label>
+            <input id="height_in" name="height_in" type="number" min="0" step="0.01" value="" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label for="weight_lb">Weight (lb)</label>
+            <input id="weight_lb" name="weight_lb" type="number" min="0" step="0.01" value="" autocomplete="off" required />
+          </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="pallet-editor" class="pallet-editor hidden">
+          <div class="note">Enter each pallet separately. Totals and freight class update automatically from these pallet entries.</div>
+          <div id="pallet-list"></div>
+        </div>
+
+        <input id="freight_class" name="freight_class" type="hidden" value="" />
+
+        <div class="calc-strip">
+          <div class="calc-card">
+            <span class="k">Volume (cu ft)</span>
+            <span id="calc-volume" class="v">-</span>
+          </div>
+          <div class="calc-card">
+            <span class="k">Density (lb/cu ft)</span>
+            <span id="calc-density" class="v">-</span>
+          </div>
+          <div class="calc-card">
+            <span class="k">Estimated Freight Class</span>
+            <span id="calc-class" class="v">-</span>
+          </div>
+        </div>
+
+        <div class="note">Freight class is calculated automatically from the dimensions and weight shown above.</div>
+
+        <div class="actions">
+          <button class="primary" id="run-btn" type="submit">Run Full Quote Flow</button>
+          <button class="secondary" id="save-btn" type="button">Only Save Inputs</button>
+          <button class="secondary" id="save-profile-btn" type="button">Save Company</button>
+          <button class="secondary" id="delete-profile-btn" type="button">Delete Company</button>
+          <button class="danger" id="stop-btn" type="button" disabled>Stop Process</button>
+          <div id="status" class="status"></div>
+        </div>
+      </form>
+
+      <div id="result" class="result">
+        <strong id="result-title">Latest Run</strong>
+        <div class="result-grid">
+          <div class="metric"><span class="k">Batch ID</span><span id="batch-id" class="v">-</span></div>
+        </div>
+        <div id="report-banner" class="report-banner">
+          <div class="eyebrow-line">Cheapest Report</div>
+          <div id="report-headline" class="headline">-</div>
+          <div id="report-detail" class="detail">-</div>
+        </div>
+        <div id="result-list" class="result-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const form = document.getElementById("quote-form");
+    const runBtn = document.getElementById("run-btn");
+    const saveBtn = document.getElementById("save-btn");
+    const saveProfileBtn = document.getElementById("save-profile-btn");
+    const deleteProfileBtn = document.getElementById("delete-profile-btn");
+    const stopBtn = document.getElementById("stop-btn");
+    const statusEl = document.getElementById("status");
+    const resultEl = document.getElementById("result");
+    const resultListEl = document.getElementById("result-list");
+    const reportBannerEl = document.getElementById("report-banner");
+    const reportHeadlineEl = document.getElementById("report-headline");
+    const reportDetailEl = document.getElementById("report-detail");
+    const freightClassInput = document.getElementById("freight_class");
+    const volumeEl = document.getElementById("calc-volume");
+    const densityEl = document.getElementById("calc-density");
+    const classEl = document.getElementById("calc-class");
+    const classCardEl = classEl.closest(".calc-card");
+    const palletCountEl = document.getElementById("pallet_count");
+    const profileSelectEl = document.getElementById("profile_select");
+    const profileDropdownEl = document.getElementById("profile_dropdown");
+    const profileNameEl = document.getElementById("profile_name");
+    const profileSummaryEl = document.getElementById("profile-summary");
+    const singlePalletFieldsEl = document.getElementById("single-pallet-fields");
+    const palletEditorEl = document.getElementById("pallet-editor");
+    const palletListEl = document.getElementById("pallet-list");
+
+    let latestResults = [];
+    let currentRunId = "";
+    let currentAbortController = null;
+    let profiles = {};
+    let visibleProfileNames = [];
+
+    function setStatus(text, kind = "") {
+      statusEl.textContent = text;
+      statusEl.className = `status ${kind}`;
+    }
+
+    function todayIso() {
+      const now = new Date();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      return `${now.getFullYear()}-${month}-${day}`;
+    }
+
+    function toNumber(value) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : 0;
+    }
+
+    function round2(value) {
+      return Math.round(value * 100) / 100;
+    }
+
+    function formatPrice(value) {
+      if (value === null || value === undefined || value === "" || Number.isNaN(Number(value))) {
+        return "-";
+      }
+      return `$${Number(value).toFixed(2)}`;
+    }
+
+    function cheapestQuote(results) {
+      const allQuotes = [];
+      for (const item of results || []) {
+        const brokerQuotes = item?.broker_quotes || [];
+        if (
+          item &&
+          item.status !== "skipped" &&
+          brokerQuotes.length === 0 &&
+          item.price !== null &&
+          item.price !== undefined &&
+          item.price !== ""
+        ) {
+          allQuotes.push({
+            carrier: item.carrier,
+            price: Number(item.price),
+            transit_days: item.transit_days,
+            source: item.carrier,
+          });
+        }
+        for (const brokerQuote of brokerQuotes) {
+          if (brokerQuote.price !== null && brokerQuote.price !== undefined && brokerQuote.price !== "") {
+            allQuotes.push({
+              carrier: brokerQuote.carrier,
+              price: Number(brokerQuote.price),
+              transit_days: brokerQuote.transit_days,
+              service_level: brokerQuote.service_level,
+              time: brokerQuote.time,
+              source: "MYCARRIER",
+            });
+          }
+        }
+      }
+      if (!allQuotes.length) return null;
+      return allQuotes.reduce((best, item) => item.price < best.price ? item : best, allQuotes[0]);
+    }
+
+    function profileRecordData(record) {
+      if (record && typeof record === "object" && record.data) return record.data;
+      return record || {};
+    }
+
+    function profileRecordSummary(record) {
+      if (record && typeof record === "object" && record.last_quote_summary) return record.last_quote_summary;
+      return {};
+    }
+
+    function updateProfileSummary(name = "") {
+      const record = profiles[name];
+      const summary = profileRecordSummary(record);
+      if (!name || !summary || !summary.carrier || summary.price === undefined || summary.price === null || summary.price === "") {
+        profileSummaryEl.classList.remove("show");
+        profileSummaryEl.innerHTML = "";
+        return;
+      }
+      const sourceText = summary.source && summary.source !== summary.carrier ? ` via ${summary.source}` : "";
+      const lane = `${summary.origin_zip || "-"} to ${summary.destination_zip || "-"}`;
+      const shipment = `${summary.pallets || "-"} pallet(s), ${summary.length || "-"} x ${summary.width || "-"} x ${summary.height || "-"}, ${summary.weight || "-"} lb, class ${summary.freight_class || "-"}`;
+      profileSummaryEl.classList.add("show");
+      profileSummaryEl.innerHTML = `
+        <div class="ps-top">Last quoted setup</div>
+        <div class="ps-main">${summary.carrier} was cheapest at ${formatPrice(summary.price)}${sourceText}</div>
+        <div class="ps-line">Lane: ${lane}</div>
+        <div class="ps-line">Shipment: ${shipment}</div>
+      `;
+    }
+
+    function palletCountValue() {
+      return Math.max(1, Number(palletCountEl.value || 1));
+    }
+
+    function readPalletItems() {
+      return Array.from(document.querySelectorAll(".pallet-card")).map((card, index) => ({
+        pallet_number: index + 1,
+        pieces: Number(card.querySelector("[data-field='pieces']").value || 0),
+        length_in: Number(card.querySelector("[data-field='length']").value || 0),
+        width_in: Number(card.querySelector("[data-field='width']").value || 0),
+        height_in: Number(card.querySelector("[data-field='height']").value || 0),
+        weight_lb: Number(card.querySelector("[data-field='weight']").value || 0),
+        freight_class: (card.querySelector("[data-field='class']").value || "").trim(),
+      }));
+    }
+
+    function setRunningState(isRunning) {
+      runBtn.disabled = isRunning;
+      saveBtn.disabled = isRunning;
+      saveProfileBtn.disabled = isRunning;
+      deleteProfileBtn.disabled = isRunning;
+      stopBtn.disabled = !isRunning;
+    }
+
+    function renderPalletEditor() {
+      const count = palletCountValue();
+      const existing = readPalletItems();
+      palletListEl.innerHTML = "";
+
+      if (count <= 1) {
+        palletEditorEl.classList.add("hidden");
+        singlePalletFieldsEl.classList.remove("hidden");
+        return;
+      }
+
+      palletEditorEl.classList.remove("hidden");
+      singlePalletFieldsEl.classList.add("hidden");
+
+      for (let idx = 0; idx < count; idx += 1) {
+        const saved = existing[idx] || {};
+        const card = document.createElement("div");
+        card.className = "pallet-card";
+        card.innerHTML = `
+          <h3>Pallet ${idx + 1}</h3>
+          <div class="pallet-grid">
+            <div class="field">
+              <label>Pieces</label>
+              <input type="number" min="1" step="1" data-field="pieces" value="${saved.pieces || 1}" />
+            </div>
+            <div class="field">
+              <label>Length (in)</label>
+              <input type="number" min="0" step="0.01" data-field="length" value="${saved.length_in || ""}" />
+            </div>
+            <div class="field">
+              <label>Width (in)</label>
+              <input type="number" min="0" step="0.01" data-field="width" value="${saved.width_in || ""}" />
+            </div>
+            <div class="field">
+              <label>Height (in)</label>
+              <input type="number" min="0" step="0.01" data-field="height" value="${saved.height_in || ""}" />
+            </div>
+            <div class="field">
+              <label>Weight (lb)</label>
+              <input type="number" min="0" step="0.01" data-field="weight" value="${saved.weight_lb || ""}" />
+            </div>
+            <div class="field">
+              <label>Estimated Class</label>
+              <input type="text" data-field="class" value="" readonly />
+            </div>
+          </div>
+        `;
+        palletListEl.appendChild(card);
+      }
+
+      palletListEl.querySelectorAll("input").forEach((input) => {
+        input.addEventListener("input", updateClassEstimate);
+      });
+    }
+
+    function densityToClass(density) {
+      if (!density) return "";
+      if (density >= 50) return "50";
+      if (density >= 35) return "55";
+      if (density >= 30) return "60";
+      if (density >= 22.5) return "65";
+      if (density >= 15) return "70";
+      if (density >= 13.5) return "77.5";
+      if (density >= 12) return "85";
+      if (density >= 10.5) return "92.5";
+      if (density >= 9) return "100";
+      if (density >= 8) return "110";
+      if (density >= 7) return "125";
+      if (density >= 6) return "150";
+      if (density >= 5) return "175";
+      if (density >= 4) return "200";
+      if (density >= 3) return "250";
+      if (density >= 2) return "300";
+      if (density >= 1) return "400";
+      return "500";
+    }
+
+    function updateClassEstimate() {
+      const palletItems = readPalletItems();
+      const usePalletItems = palletCountValue() > 1 && palletItems.length > 0;
+      const length = toNumber(document.getElementById("length_in").value);
+      const width = toNumber(document.getElementById("width_in").value);
+      const height = toNumber(document.getElementById("height_in").value);
+      const weight = toNumber(document.getElementById("weight_lb").value);
+
+      const volume = usePalletItems
+        ? palletItems.reduce((sum, item) => sum + ((item.length_in * item.width_in * item.height_in) / 1728), 0)
+        : (length && width && height ? (length * width * height) / 1728 : 0);
+      const totalWeight = usePalletItems
+        ? palletItems.reduce((sum, item) => sum + item.weight_lb, 0)
+        : weight;
+      const totalPieces = usePalletItems
+        ? palletItems.reduce((sum, item) => sum + item.pieces, 0)
+        : toNumber(document.getElementById("pieces").value);
+      const density = volume ? totalWeight / volume : 0;
+      const estimatedClass = densityToClass(density);
+
+      palletItems.forEach((item, index) => {
+        const palletVolume = item.length_in && item.width_in && item.height_in
+          ? (item.length_in * item.width_in * item.height_in) / 1728
+          : 0;
+        const palletDensity = palletVolume ? item.weight_lb / palletVolume : 0;
+        const palletClass = densityToClass(palletDensity);
+        const classInput = palletListEl.querySelectorAll("[data-field='class']")[index];
+        if (classInput) classInput.value = palletClass || "-";
+      });
+
+      volumeEl.textContent = volume ? String(round2(volume)) : "-";
+      densityEl.textContent = density ? String(round2(density)) : "-";
+      classEl.textContent = estimatedClass || "-";
+      if (usePalletItems) {
+        classCardEl.classList.add("hidden");
+      } else {
+        classCardEl.classList.remove("hidden");
+      }
+
+      if (estimatedClass) {
+        freightClassInput.value = estimatedClass;
+      }
+
+      if (usePalletItems && palletItems[0]) {
+        document.getElementById("length_in").value = palletItems[0].length_in || "";
+        document.getElementById("width_in").value = palletItems[0].width_in || "";
+        document.getElementById("height_in").value = palletItems[0].height_in || "";
+        document.getElementById("weight_lb").value = totalWeight || "";
+        document.getElementById("pieces").value = totalPieces || "";
+      }
+    }
+
+    function formPayload() {
+      const fd = new FormData(form);
+      const payload = Object.fromEntries(fd.entries());
+      const palletItems = readPalletItems();
+      const usePalletItems = palletCountValue() > 1 && palletItems.length > 0;
+      payload.pallet_count = Number(payload.pallet_count);
+      payload.length_in = Number(payload.length_in);
+      payload.width_in = Number(payload.width_in);
+      payload.height_in = Number(payload.height_in);
+      payload.weight_lb = Number(payload.weight_lb);
+      payload.pieces = Number(payload.pieces);
+      payload.pallet_items = usePalletItems ? palletItems : [];
+      payload.company_name = (profileSelectEl.value || profileNameEl.value || "").trim();
+      if (usePalletItems) {
+        payload.weight_lb = palletItems.reduce((sum, item) => sum + item.weight_lb, 0);
+        payload.pieces = palletItems.reduce((sum, item) => sum + item.pieces, 0);
+        payload.length_in = Number(palletItems[0]?.length_in || 0);
+        payload.width_in = Number(palletItems[0]?.width_in || 0);
+        payload.height_in = Number(palletItems[0]?.height_in || 0);
+      }
+      return payload;
+    }
+
+    function showResult(data) {
+      resultEl.classList.add("show");
+      document.getElementById("batch-id").textContent = data.batch_id || "-";
+      resultListEl.innerHTML = "";
+
+      const results = Array.isArray(data.results) ? data.results : [];
+      const cheapest = cheapestQuote(results);
+      if (cheapest) {
+        reportBannerEl.classList.add("show");
+        reportHeadlineEl.textContent = `${cheapest.carrier} is the cheapest at ${formatPrice(cheapest.price)}`;
+        reportDetailEl.textContent = `${cheapest.transit_days ?? "-"} day(s)${cheapest.service_level ? ` | ${cheapest.service_level}` : ""}${cheapest.time ? ` | ${cheapest.time}` : ""}${cheapest.source ? ` | Source: ${cheapest.source}` : ""}`;
+      } else {
+        reportBannerEl.classList.remove("show");
+        reportHeadlineEl.textContent = "-";
+        reportDetailEl.textContent = "-";
+      }
+      for (const item of results) {
+        const inputs = item.inputs || {};
+        const debug = item.debug || {};
+        const isSkipped = item.status === "skipped";
+        const wrapper = document.createElement("div");
+        wrapper.className = "result-item";
+        const brokerQuotes = Array.isArray(item.broker_quotes) ? item.broker_quotes : [];
+        wrapper.innerHTML = `
+          <h3>${item.carrier || "-"}</h3>
+          <div class="result-grid">
+            <div class="metric"><span class="k">Price</span><span class="v">${formatPrice(item.price)}</span></div>
+            <div class="metric"><span class="k">Transit Days</span><span class="v">${item.transit_days ?? "-"}</span></div>
+          </div>
+          <div class="result-meta">
+            <div><strong>Origin:</strong> ${inputs.origin_zip || "-"} ${inputs.origin_city || ""}</div>
+            <div><strong>Destination:</strong> ${inputs.destination_zip || "-"} ${inputs.destination_city || ""}</div>
+            <div><strong>Freight Class:</strong> ${inputs.freight_class || "-"}</div>
+            <div><strong>Weight:</strong> ${inputs.weight || "-"}</div>
+            <div><strong>Dimensions:</strong> ${inputs.length || "-"} x ${inputs.width || "-"} x ${inputs.height || "-"}</div>
+            <div><strong>Pieces / Pallets:</strong> ${inputs.pieces || "-"} / ${inputs.pallets || "-"}</div>
+          </div>
+          ${(inputs.pallet_items || []).length > 1 ? `
+            <div class="result-debug">
+              <strong>Pallets:</strong> ${(inputs.pallet_items || []).map((item) => `#${item.pallet_number} ${item.length}x${item.width}x${item.height}, ${item.weight} lb, ${item.pieces} pcs, class ${item.freight_class || "-"}`).join(" | ")}
+            </div>
+          ` : ""}
+          ${isSkipped ? `
+            <div class="result-skip">
+              Skipped: ${item.error || "Carrier did not return a usable quote for this destination."}
+            </div>
+          ` : ""}
+          ${(debug.cn_total || debug.us_total) ? `
+            <div class="result-debug">
+              <strong>Debug totals:</strong> CN=${debug.cn_total || "-"} | US=${debug.us_total || "-"}
+            </div>
+          ` : ""}
+          ${brokerQuotes.length ? `
+            <div class="result-debug"><strong>MyCarrier quotes:</strong> ${brokerQuotes.length}</div>
+            <div class="broker-list">
+              ${brokerQuotes.map((quote) => `
+                <div class="broker-row">
+                  <strong>${quote.carrier || "-"}</strong>
+                  <span>${quote.service_level || "-"} | ${quote.transit_days ?? "-"} day(s) | ${quote.time || "-"}</span>
+                  <strong>${formatPrice(quote.price)}</strong>
+                </div>
+              `).join("")}
+            </div>
+          ` : ""}
+        `;
+        resultListEl.appendChild(wrapper);
+      }
+    }
+
+    function applyFormDefaults(defaults) {
+      if (!defaults) return;
+      Object.entries(defaults).forEach(([key, value]) => {
+        const el = form.elements.namedItem(key);
+        if (el) {
+          el.value = value ?? "";
+        }
+      });
+      if (Array.isArray(defaults.pallet_items) && defaults.pallet_items.length > 1) {
+        palletCountEl.value = defaults.pallet_items.length;
+        renderPalletEditor();
+        const cards = Array.from(document.querySelectorAll(".pallet-card"));
+        defaults.pallet_items.forEach((item, idx) => {
+          const card = cards[idx];
+          if (!card) return;
+          card.querySelector("[data-field='pieces']").value = item.pieces ?? 1;
+          card.querySelector("[data-field='length']").value = item.length_in ?? item.length ?? "";
+          card.querySelector("[data-field='width']").value = item.width_in ?? item.width ?? "";
+          card.querySelector("[data-field='height']").value = item.height_in ?? item.height ?? "";
+          card.querySelector("[data-field='weight']").value = item.weight_lb ?? item.weight ?? "";
+        });
+      } else {
+        renderPalletEditor();
+      }
+      updateClassEstimate();
+    }
+
+    async function postJson(url, payload) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        data = { detail: "Invalid server response" };
+      }
+
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || "Request failed");
+      }
+      return data;
+    }
+
+    async function deleteJson(url) {
+      const res = await fetch(url, { method: "DELETE" });
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        data = { detail: "Invalid server response" };
+      }
+      if (!res.ok) {
+        throw new Error(data.detail || data.message || "Request failed");
+      }
+      return data;
+    }
+
+    async function runStream(payload) {
+      currentAbortController = new AbortController();
+      const response = await fetch("/api/run-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: currentAbortController.signal,
+      });
+
+      if (!response.ok || !response.body) {
+        let detail = "Request failed";
+        try {
+          const data = await response.json();
+          detail = data.detail || detail;
+        } catch {}
+        throw new Error(detail);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.type === "status") {
+            setStatus(event.message, "");
+          } else if (event.type === "started") {
+            currentRunId = event.run_id || "";
+            latestResults = [];
+            showResult({ batch_id: event.batch_id, results: latestResults });
+          } else if (event.type === "result") {
+            latestResults = event.results || [];
+            showResult({ batch_id: event.batch_id, results: latestResults });
+            setStatus(`Quoted ${event.result?.carrier || "carrier"}. Waiting for the next carrier...`, "");
+          } else if (event.type === "stopped") {
+            latestResults = event.results || [];
+            showResult({ batch_id: event.batch_id, results: latestResults });
+            setStatus(event.message || "Run stopped.", "err");
+            currentRunId = "";
+          } else if (event.type === "complete") {
+            latestResults = event.results || [];
+            showResult({ batch_id: event.batch_id, results: latestResults });
+            applyFormDefaults(event.reset_form);
+            await loadProfiles();
+            updateProfileSummary(profileSelectEl.value || profileNameEl.value || "");
+            setStatus(event.message || "Quotes completed and written to Broker Result.", "ok");
+            currentRunId = "";
+          } else if (event.type === "error") {
+            throw new Error(event.message || "Quote run failed");
+          }
+        }
+      }
+    }
+
+    function refreshProfileDropdown(selected = "") {
+      const typed = (profileSelectEl.value || "").trim().toLowerCase();
+      visibleProfileNames = Object.keys(profiles).sort().filter((name) => {
+        if (!typed) return true;
+        return name.toLowerCase().includes(typed);
+      });
+      profileDropdownEl.innerHTML = "";
+      if (!visibleProfileNames.length) {
+        profileDropdownEl.innerHTML = `<div class="company-empty">No matching companies</div>`;
+      } else {
+        visibleProfileNames.forEach((name) => {
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = "company-option";
+          option.textContent = name;
+          option.dataset.name = name;
+          if (name === selected) option.classList.add("active");
+          option.addEventListener("click", () => {
+            profileSelectEl.value = name;
+            handleProfileSelection();
+            hideProfileDropdown();
+          });
+          profileDropdownEl.appendChild(option);
+        });
+      }
+      if (selected) profileSelectEl.value = selected;
+      updateProfileSummary(selected || profileSelectEl.value || "");
+    }
+
+    function showProfileDropdown() {
+      refreshProfileDropdown(profileSelectEl.value || "");
+      profileDropdownEl.classList.add("show");
+    }
+
+    function hideProfileDropdown() {
+      profileDropdownEl.classList.remove("show");
+    }
+
+    async function loadProfiles() {
+      try {
+        const response = await fetch("/api/profiles");
+        const data = await response.json();
+        profiles = data.profiles || {};
+        refreshProfileDropdown();
+      } catch {}
+    }
+
+    saveBtn.addEventListener("click", async () => {
+      setRunningState(true);
+      stopBtn.disabled = true;
+      setStatus("Saving inputs...", "");
+      try {
+        const data = await postJson("/api/input", formPayload());
+        setStatus("Inputs saved to Google Sheet.", "ok");
+        showResult(data);
+      } catch (err) {
+        setStatus(String(err), "err");
+      } finally {
+        setRunningState(false);
+      }
+    });
+
+    saveProfileBtn.addEventListener("click", async () => {
+      const companyName = (profileNameEl.value || "").trim();
+      if (!companyName) {
+        setStatus("Enter a company name before saving.", "err");
+        return;
+      }
+      saveProfileBtn.disabled = true;
+      try {
+        const data = await postJson("/api/profiles", {
+          company_name: companyName,
+          data: formPayload(),
+        });
+        profiles = data.profiles || {};
+        refreshProfileDropdown(data.selected || companyName);
+        updateProfileSummary(data.selected || companyName);
+        setStatus(`Saved company profile: ${companyName}`, "ok");
+      } catch (err) {
+        setStatus(String(err), "err");
+      } finally {
+        saveProfileBtn.disabled = false;
+      }
+    });
+
+    deleteProfileBtn.addEventListener("click", async () => {
+      const selected = (profileSelectEl.value || profileNameEl.value || "").trim();
+      if (!selected) {
+        setStatus("Select a company to delete.", "err");
+        return;
+      }
+      const confirmed = window.confirm(`Delete saved company: ${selected}?`);
+      if (!confirmed) return;
+
+      deleteProfileBtn.disabled = true;
+      try {
+        const data = await deleteJson(`/api/profiles/${encodeURIComponent(selected)}`);
+        profiles = data.profiles || {};
+        profileSelectEl.value = "";
+        profileNameEl.value = "";
+        refreshProfileDropdown();
+        updateProfileSummary("");
+        setStatus(`Deleted company profile: ${data.deleted || selected}`, "ok");
+      } catch (err) {
+        setStatus(String(err), "err");
+      } finally {
+        deleteProfileBtn.disabled = false;
+      }
+    });
+
+    function handleProfileSelection() {
+      const selected = (profileSelectEl.value || "").trim();
+      if (!selected || !profiles[selected]) return;
+      profileNameEl.value = selected;
+      applyFormDefaults(profileRecordData(profiles[selected]));
+      updateProfileSummary(selected);
+      refreshProfileDropdown(selected);
+    }
+
+    profileSelectEl.addEventListener("change", handleProfileSelection);
+    profileSelectEl.addEventListener("focus", showProfileDropdown);
+    profileSelectEl.addEventListener("click", showProfileDropdown);
+    profileSelectEl.addEventListener("input", () => {
+      const typed = (profileSelectEl.value || "").trim();
+      showProfileDropdown();
+      if (profiles[typed]) {
+        handleProfileSelection();
+      } else {
+        updateProfileSummary("");
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".company-picker")) {
+        hideProfileDropdown();
+      }
+    });
+
+    stopBtn.addEventListener("click", async () => {
+      if (currentAbortController) {
+        currentAbortController.abort();
+      }
+      if (currentRunId) {
+        try {
+          await postJson("/api/stop", { run_id: currentRunId });
+        } catch {}
+      }
+      currentRunId = "";
+      setRunningState(false);
+      setStatus("Stop requested. The current carrier may finish, but the next carrier will not start.", "err");
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setRunningState(true);
+      setStatus("Running carriers. Results will appear one by one as each quote finishes...", "");
+      try {
+        latestResults = [];
+        await runStream(formPayload());
+      } catch (err) {
+        if (String(err).includes("AbortError")) {
+          setStatus("Run stopped from the page.", "err");
+        } else {
+          setStatus(String(err), "err");
+        }
+      } finally {
+        currentAbortController = null;
+        setRunningState(false);
+      }
+    });
+
+    ["length_in", "width_in", "height_in", "weight_lb"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", updateClassEstimate);
+    });
+
+    if (!document.getElementById("shipment_date").value) {
+      document.getElementById("shipment_date").value = todayIso();
+    }
+
+    palletCountEl.addEventListener("input", () => {
+      renderPalletEditor();
+      updateClassEstimate();
+    });
+
+    loadProfiles();
+    renderPalletEditor();
+    updateClassEstimate();
+  </script>
+</body>
+</html>
