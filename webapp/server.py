@@ -1,3 +1,5 @@
+import asyncio
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import date
 from uuid import uuid4
 import json
@@ -31,6 +33,8 @@ except ImportError as exc:
     CENTRAL_IMPORT_ERROR = str(exc)
 from quote_mycarrier import quote_mycarrier
 from quote_numark import quote_numark
+from quote_glt import quote_glt
+from quote_schneider import quote_schneider
 from quote_tforce import quote_tforce
 from quote_total import quote_total, write_result
 from sheets_utils import with_gsheets_retry
@@ -84,6 +88,21 @@ def default_form_values():
 app = FastAPI(title="Freight Quote Agent Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 RUN_CANCEL_FLAGS: dict[str, bool] = {}
+WEBAPP_ENABLE_GLT = False
+WEBAPP_GLT_HEADLESS = True
+WEBAPP_GLT_SLOW_MO = 0
+WEBAPP_GLT_ONLY_DEBUG = False
+INITIAL_PARALLEL_WORKERS = 3
+DIRECT_PARALLEL_WORKERS = 2
+RESULT_DISPLAY_ORDER = [
+    "GLT",
+    "SCHNEIDER",
+    "MYCARRIER",
+    "TOTAL",
+    "CENTRAL TRANSPORTATION",
+    "NUMARK",
+    "TFORCE",
+]
 
 
 def gs_client():
@@ -93,11 +112,16 @@ def gs_client():
 
 def spreadsheet():
     client = gs_client()
-    return client.open(SHEET_NAME)
+    return with_gsheets_retry(lambda: client.open(SHEET_NAME))
 
 
 def input_sheet():
-    return spreadsheet().worksheet(INPUT_TAB)
+    ss = spreadsheet()
+    return with_gsheets_retry(lambda: ss.worksheet(INPUT_TAB))
+
+
+def spreadsheet_worksheet(ss, title: str):
+    return with_gsheets_retry(lambda: ss.worksheet(title))
 
 
 def load_profiles() -> dict:
@@ -394,6 +418,21 @@ def skipped_result(carrier_name: str, quote_data: dict, exc: Exception):
     return wrapped
 
 
+def should_retry_skipped_result(result: dict) -> bool:
+    if result.get("status") != "skipped":
+        return False
+    return should_skip_carrier_error(result.get("error", ""))
+
+
+def mark_retry_exhausted(result: dict):
+    error = str(result.get("error") or "Skipped").strip()
+    retry_note = "Retried once after the full carrier pass."
+    if retry_note not in error:
+        result["error"] = f"{error} {retry_note}".strip()
+    result["retry_attempted"] = True
+    return result
+
+
 def run_one_carrier(ss, carrier_name: str, fn, quote_data: dict):
     try:
         result = fn(quote_data)
@@ -409,6 +448,144 @@ def run_one_carrier(ss, carrier_name: str, fn, quote_data: dict):
         if should_skip_carrier_error(str(exc)):
             return skipped_result(carrier_name, quote_data, exc)
         raise
+
+
+def upsert_result(result_map: dict[str, dict], result: dict):
+    carrier_name = str(result.get("carrier") or "").strip()
+    if not carrier_name:
+        carrier_name = f"result-{len(result_map) + 1}"
+    result_map[carrier_name] = result
+
+
+def ordered_results(result_map: dict[str, dict]) -> list[dict]:
+    display_rank = {name: index for index, name in enumerate(RESULT_DISPLAY_ORDER)}
+    return sorted(
+        result_map.values(),
+        key=lambda item: (
+            display_rank.get(str(item.get("carrier") or "").strip(), len(display_rank)),
+            str(item.get("carrier") or "").strip(),
+        ),
+    )
+
+
+def write_direct_result(ss, carrier_name: str, result: dict, quote_data: dict):
+    write_result(
+        ss,
+        carrier_name=carrier_name,
+        result=result,
+        origin_city=quote_data["pickup_city"],
+        dest_city=quote_data["delivery_city"],
+    )
+
+
+def run_glt_job(quote_data: dict):
+    try:
+        raw_glt_results = quote_glt(
+            quote_data,
+            headless=WEBAPP_GLT_HEADLESS,
+            slow_mo=WEBAPP_GLT_SLOW_MO,
+        )
+        wrapped_glt = wrap_glt_results(raw_glt_results, quote_data)
+        return {
+            "carrier": "GLT",
+            "wrapped": wrapped_glt,
+            "covered_direct_carriers": glt_covered_direct_carriers(raw_glt_results),
+        }
+    except Exception as exc:
+        if should_skip_carrier_error(str(exc)):
+            return {
+                "carrier": "GLT",
+                "wrapped": skipped_result("GLT", quote_data, exc),
+                "covered_direct_carriers": set(),
+            }
+        raise
+
+
+def run_schneider_job(quote_data: dict):
+    try:
+        raw_schneider_results = quote_schneider(quote_data)
+        wrapped_schneider = wrap_schneider_results(raw_schneider_results, quote_data)
+        return {
+            "carrier": "SCHNEIDER",
+            "wrapped": wrapped_schneider,
+            "covered_direct_carriers": set(),
+        }
+    except Exception as exc:
+        if should_skip_carrier_error(str(exc)):
+            return {
+                "carrier": "SCHNEIDER",
+                "wrapped": skipped_result("SCHNEIDER", quote_data, exc),
+                "covered_direct_carriers": set(),
+            }
+        raise
+
+
+def run_mycarrier_job(quote_data: dict):
+    try:
+        raw_mycarrier_results = quote_mycarrier(quote_data)
+        wrapped_mycarrier = wrap_mycarrier_results(raw_mycarrier_results, quote_data)
+        return {
+            "carrier": "MYCARRIER",
+            "wrapped": wrapped_mycarrier,
+            "covered_direct_carriers": mycarrier_covered_direct_carriers(raw_mycarrier_results),
+        }
+    except Exception as exc:
+        if should_skip_carrier_error(str(exc)):
+            return {
+                "carrier": "MYCARRIER",
+                "wrapped": skipped_result("MYCARRIER", quote_data, exc),
+                "covered_direct_carriers": set(),
+            }
+        raise
+
+
+def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict):
+    try:
+        result = fn(quote_data)
+        return {
+            "carrier": carrier_name,
+            "wrapped": result_with_inputs(result, quote_data),
+            "direct_result": result,
+        }
+    except Exception as exc:
+        if should_skip_carrier_error(str(exc)):
+            return {
+                "carrier": carrier_name,
+                "wrapped": skipped_result(carrier_name, quote_data, exc),
+                "direct_result": None,
+            }
+        raise
+
+
+def run_jobs_limited(jobs: list[tuple[str, callable]], *, max_workers: int, should_stop=None):
+    if not jobs:
+        return
+
+    worker_count = max(1, min(max_workers, len(jobs)))
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        job_iter = iter(jobs)
+        in_flight: dict = {}
+
+        def submit_next():
+            if should_stop and should_stop():
+                return False
+            try:
+                job_name, job_fn = next(job_iter)
+            except StopIteration:
+                return False
+            in_flight[executor.submit(job_fn)] = job_name
+            return True
+
+        for _ in range(worker_count):
+            if not submit_next():
+                break
+
+        while in_flight:
+            done, _ = wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
+            for future in done:
+                job_name = in_flight.pop(future)
+                yield job_name, future.result()
+                submit_next()
 
 
 def carrier_queue():
@@ -435,6 +612,33 @@ MYCARRIER_DIRECT_MAP = {
     "TFORCE FREIGHT": "TFORCE",
 }
 
+GLT_DIRECT_MAP = {
+    "CENTRAL TRANSPORT": "CENTRAL TRANSPORTATION",
+    "CENTRAL TRANSPORTATION": "CENTRAL TRANSPORTATION",
+    "TFORCE FREIGHT": "TFORCE",
+    "TFORCE FREIGHT LTL": "TFORCE",
+}
+
+
+def wrap_glt_results(raw_results: list[dict], quote_data: dict):
+    cheapest = None
+    priced = [item for item in raw_results if item.get("price") not in (None, "", 0, 0.0)]
+    if priced:
+        cheapest = min(priced, key=lambda item: float(item.get("price")))
+
+    return result_with_inputs(
+        {
+            "carrier": "GLT",
+            "price": cheapest.get("price") if cheapest else None,
+            "transit_days": cheapest.get("transit_days") if cheapest else None,
+            "service_level": cheapest.get("service_level") if cheapest else "",
+            "time": cheapest.get("time") if cheapest else "",
+            "broker_quotes": raw_results,
+            "broker_quote_count": len(raw_results),
+        },
+        quote_data,
+    )
+
 
 def wrap_mycarrier_results(raw_results: list[dict], quote_data: dict):
     cheapest = None
@@ -456,10 +660,39 @@ def wrap_mycarrier_results(raw_results: list[dict], quote_data: dict):
     )
 
 
+def wrap_schneider_results(raw_results: list[dict], quote_data: dict):
+    cheapest = None
+    priced = [item for item in raw_results if item.get("price") not in (None, "", 0, 0.0)]
+    if priced:
+        cheapest = min(priced, key=lambda item: float(item.get("price")))
+
+    return result_with_inputs(
+        {
+            "carrier": "SCHNEIDER",
+            "price": cheapest.get("price") if cheapest else None,
+            "transit_days": cheapest.get("transit_days") if cheapest else None,
+            "service_level": cheapest.get("service_level") if cheapest else "",
+            "time": cheapest.get("time") if cheapest else "",
+            "broker_quotes": raw_results,
+            "broker_quote_count": len(raw_results),
+        },
+        quote_data,
+    )
+
+
 def mycarrier_covered_direct_carriers(raw_results: list[dict]) -> set[str]:
     covered = set()
     for item in raw_results or []:
         direct_name = MYCARRIER_DIRECT_MAP.get(normalize_carrier_key(item.get("carrier")))
+        if direct_name:
+            covered.add(direct_name)
+    return covered
+
+
+def glt_covered_direct_carriers(raw_results: list[dict]) -> set[str]:
+    covered = set()
+    for item in raw_results or []:
+        direct_name = GLT_DIRECT_MAP.get(normalize_carrier_key(item.get("carrier")))
         if direct_name:
             covered.add(direct_name)
     return covered
@@ -526,6 +759,11 @@ def windgate_logo():
     return FileResponse(BASE_DIR / "Windgate.png")
 
 
+@app.get("/LOGO-blue.png")
+def loader_logo():
+    return FileResponse(BASE_DIR / "LOGO-blue.png")
+
+
 @app.post("/api/input")
 def save_input(payload: InputPayload):
     ws = input_sheet()
@@ -587,51 +825,83 @@ def stop_run(payload: StopPayload):
 def run_quote(payload: InputPayload):
     try:
         ss = spreadsheet()
-        write_input_values(ss.worksheet(INPUT_TAB), payload)
+        write_input_values(spreadsheet_worksheet(ss, INPUT_TAB), payload)
 
         broker_result = write_brokers(spreadsheet=ss)
         if not broker_result["ok"]:
             raise HTTPException(status_code=400, detail=broker_result["message"])
 
         quote_data = payload_to_quote_data(payload)
-        results = []
+        result_map: dict[str, dict] = {}
         covered_direct_carriers = set()
 
-        try:
-            raw_mycarrier_results = quote_mycarrier(quote_data)
-            wrapped_mycarrier = wrap_mycarrier_results(raw_mycarrier_results, quote_data)
-            results.append(wrapped_mycarrier)
-            covered_direct_carriers = mycarrier_covered_direct_carriers(raw_mycarrier_results)
-        except Exception as exc:
-            if should_skip_carrier_error(str(exc)):
-                results.append(skipped_result("MYCARRIER", quote_data, exc))
-            else:
-                raise
+        initial_jobs = []
+        if WEBAPP_ENABLE_GLT:
+            initial_jobs.append(("GLT", lambda quote_data=quote_data: run_glt_job(quote_data)))
+        if not WEBAPP_GLT_ONLY_DEBUG:
+            initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
+            initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
 
-        for carrier_name, fn in carrier_queue():
-            if carrier_name in covered_direct_carriers:
-                results.append(
-                    skipped_result(
+        for _, job_result in run_jobs_limited(initial_jobs, max_workers=INITIAL_PARALLEL_WORKERS):
+            upsert_result(result_map, job_result["wrapped"])
+            covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
+
+        if not WEBAPP_GLT_ONLY_DEBUG:
+            queued_direct = []
+            for carrier_name, fn in carrier_queue():
+                if carrier_name in covered_direct_carriers:
+                    upsert_result(
+                        result_map,
+                        skipped_result(
+                            carrier_name,
+                            quote_data,
+                            RuntimeError("Covered by MyCarrier results."),
+                        ),
+                    )
+                    continue
+                if fn is None:
+                    upsert_result(
+                        result_map,
+                        skipped_result(
+                            carrier_name,
+                            quote_data,
+                            RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
+                        ),
+                    )
+                    continue
+                queued_direct.append(
+                    (
                         carrier_name,
-                        quote_data,
-                        RuntimeError("Covered by MyCarrier results."),
+                        lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data: run_direct_carrier_job(carrier_name, fn, quote_data),
                     )
                 )
-                continue
-            if fn is None:
-                results.append(
-                    skipped_result(
-                        carrier_name,
-                        quote_data,
-                        RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
-                    )
-                )
-                continue
-            results.append(run_one_carrier(ss, carrier_name, fn, quote_data))
+
+            for _, job_result in run_jobs_limited(queued_direct, max_workers=DIRECT_PARALLEL_WORKERS):
+                if job_result.get("direct_result") is not None:
+                    write_direct_result(ss, job_result["carrier"], job_result["direct_result"], quote_data)
+                upsert_result(result_map, job_result["wrapped"])
+
+            for carrier_name, fn in carrier_queue():
+                existing_result = result_map.get(carrier_name)
+                if not existing_result or not should_retry_skipped_result(existing_result):
+                    continue
+                if carrier_name in covered_direct_carriers or fn is None:
+                    continue
+                retried_job = run_direct_carrier_job(carrier_name, fn, quote_data)
+                if retried_job.get("direct_result") is not None:
+                    write_direct_result(ss, carrier_name, retried_job["direct_result"], quote_data)
+                retried_result = retried_job["wrapped"]
+                if should_retry_skipped_result(retried_result):
+                    retried_result = mark_retry_exhausted(retried_result)
+                else:
+                    retried_result["retry_attempted"] = True
+                upsert_result(result_map, retried_result)
+
+        results = ordered_results(result_map)
 
         update_profile_last_quote(payload.company_name, results)
 
-        clear_input_values(ss.worksheet(INPUT_TAB))
+        clear_input_values(spreadsheet_worksheet(ss, INPUT_TAB))
 
         return {
             "ok": True,
@@ -658,7 +928,7 @@ def run_quote_stream(payload: InputPayload):
         try:
             ss = spreadsheet()
             yield stream_line({"type": "status", "message": "Writing inputs to Google Sheet..."})
-            write_input_values(ss.worksheet(INPUT_TAB), payload)
+            write_input_values(spreadsheet_worksheet(ss, INPUT_TAB), payload)
 
             broker_result = write_brokers(spreadsheet=ss)
             if not broker_result["ok"]:
@@ -666,7 +936,7 @@ def run_quote_stream(payload: InputPayload):
                 return
 
             quote_data = payload_to_quote_data(payload)
-            results = []
+            result_map: dict[str, dict] = {}
             covered_direct_carriers = set()
             yield stream_line(
                 {
@@ -677,98 +947,153 @@ def run_quote_stream(payload: InputPayload):
                 }
             )
 
-            yield stream_line({"type": "status", "message": "Quoting MYCARRIER..."})
-            try:
-                raw_mycarrier_results = quote_mycarrier(quote_data)
-                wrapped_mycarrier = wrap_mycarrier_results(raw_mycarrier_results, quote_data)
-                results.append(wrapped_mycarrier)
-                covered_direct_carriers = mycarrier_covered_direct_carriers(raw_mycarrier_results)
+            initial_jobs = []
+            if WEBAPP_ENABLE_GLT:
+                initial_jobs.append(("GLT", lambda quote_data=quote_data: run_glt_job(quote_data)))
+            if not WEBAPP_GLT_ONLY_DEBUG:
+                initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
+                initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
+
+            if initial_jobs:
+                yield stream_line({"type": "status", "message": "Quoting broker portals in parallel..."})
+            for _, job_result in run_jobs_limited(initial_jobs, max_workers=INITIAL_PARALLEL_WORKERS):
+                upsert_result(result_map, job_result["wrapped"])
+                covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
+                results = ordered_results(result_map)
                 yield stream_line(
                     {
                         "type": "result",
                         "run_id": run_id,
                         "batch_id": broker_result["batch_id"],
-                        "result": wrapped_mycarrier,
+                        "result": job_result["wrapped"],
                         "results": results,
                     }
                 )
-            except Exception as exc:
-                if should_skip_carrier_error(str(exc)):
-                    wrapped_mycarrier = skipped_result("MYCARRIER", quote_data, exc)
-                    results.append(wrapped_mycarrier)
-                    yield stream_line(
-                        {
-                            "type": "result",
-                            "run_id": run_id,
-                            "batch_id": broker_result["batch_id"],
-                            "result": wrapped_mycarrier,
-                            "results": results,
-                        }
-                    )
-                else:
-                    raise
 
-            for carrier_name, fn in carrier_queue():
+            if not WEBAPP_GLT_ONLY_DEBUG:
                 if RUN_CANCEL_FLAGS.get(run_id):
                     yield stream_line(
                         {
                             "type": "stopped",
                             "run_id": run_id,
-                            "message": "Run stopped before starting the next carrier.",
+                            "message": "Run stopped before starting direct carriers.",
                             "batch_id": broker_result["batch_id"],
-                            "results": results,
+                            "results": ordered_results(result_map),
                         }
                     )
                     return
-                if carrier_name in covered_direct_carriers:
-                    wrapped = skipped_result(
-                        carrier_name,
-                        quote_data,
-                        RuntimeError("Covered by MyCarrier results."),
-                    )
-                    results.append(wrapped)
-                    yield stream_line(
-                        {
-                            "type": "result",
-                            "run_id": run_id,
-                            "batch_id": broker_result["batch_id"],
-                            "result": wrapped,
-                            "results": results,
-                        }
-                    )
-                    continue
-                if fn is None:
-                    wrapped = skipped_result(
-                        carrier_name,
-                        quote_data,
-                        RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
-                    )
-                    results.append(wrapped)
-                    yield stream_line(
-                        {
-                            "type": "result",
-                            "run_id": run_id,
-                            "batch_id": broker_result["batch_id"],
-                            "result": wrapped,
-                            "results": results,
-                        }
-                    )
-                    continue
-                yield stream_line({"type": "status", "message": f"Quoting {carrier_name}..."})
-                wrapped = run_one_carrier(ss, carrier_name, fn, quote_data)
-                results.append(wrapped)
-                yield stream_line(
-                    {
-                        "type": "result",
-                        "run_id": run_id,
-                        "batch_id": broker_result["batch_id"],
-                        "result": wrapped,
-                        "results": results,
-                    }
-                )
 
+                direct_jobs = []
+                for carrier_name, fn in carrier_queue():
+                    if carrier_name in covered_direct_carriers:
+                        wrapped = skipped_result(
+                            carrier_name,
+                            quote_data,
+                            RuntimeError("Covered by MyCarrier results."),
+                        )
+                        upsert_result(result_map, wrapped)
+                        yield stream_line(
+                            {
+                                "type": "result",
+                                "run_id": run_id,
+                                "batch_id": broker_result["batch_id"],
+                                "result": wrapped,
+                                "results": ordered_results(result_map),
+                            }
+                        )
+                        continue
+                    if fn is None:
+                        wrapped = skipped_result(
+                            carrier_name,
+                            quote_data,
+                            RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
+                        )
+                        upsert_result(result_map, wrapped)
+                        yield stream_line(
+                            {
+                                "type": "result",
+                                "run_id": run_id,
+                                "batch_id": broker_result["batch_id"],
+                                "result": wrapped,
+                                "results": ordered_results(result_map),
+                            }
+                        )
+                        continue
+                    direct_jobs.append(
+                        (
+                            carrier_name,
+                            lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data: run_direct_carrier_job(carrier_name, fn, quote_data),
+                        )
+                    )
+
+                if direct_jobs:
+                    yield stream_line({"type": "status", "message": "Quoting direct carriers with limited parallelism..."})
+                for _, job_result in run_jobs_limited(
+                    direct_jobs,
+                    max_workers=DIRECT_PARALLEL_WORKERS,
+                    should_stop=lambda: RUN_CANCEL_FLAGS.get(run_id, False),
+                ):
+                    if job_result.get("direct_result") is not None:
+                        write_direct_result(ss, job_result["carrier"], job_result["direct_result"], quote_data)
+                    upsert_result(result_map, job_result["wrapped"])
+                    results = ordered_results(result_map)
+                    yield stream_line(
+                        {
+                            "type": "result",
+                            "run_id": run_id,
+                            "batch_id": broker_result["batch_id"],
+                            "result": job_result["wrapped"],
+                            "results": results,
+                        }
+                    )
+
+                if RUN_CANCEL_FLAGS.get(run_id):
+                    yield stream_line(
+                        {
+                            "type": "stopped",
+                            "run_id": run_id,
+                            "message": "Run stopped before retrying skipped carriers.",
+                            "batch_id": broker_result["batch_id"],
+                            "results": ordered_results(result_map),
+                        }
+                    )
+                    return
+
+                for carrier_name, fn in carrier_queue():
+                    existing_result = result_map.get(carrier_name)
+                    if not existing_result or not should_retry_skipped_result(existing_result):
+                        continue
+                    if carrier_name in covered_direct_carriers or fn is None:
+                        continue
+                    yield stream_line(
+                        {
+                            "type": "status",
+                            "message": f"Retrying {carrier_name} after full carrier pass...",
+                        }
+                    )
+                    retried_job = run_direct_carrier_job(carrier_name, fn, quote_data)
+                    if retried_job.get("direct_result") is not None:
+                        write_direct_result(ss, carrier_name, retried_job["direct_result"], quote_data)
+                    retried_result = retried_job["wrapped"]
+                    if should_retry_skipped_result(retried_result):
+                        retried_result = mark_retry_exhausted(retried_result)
+                    else:
+                        retried_result["retry_attempted"] = True
+                    upsert_result(result_map, retried_result)
+                    results = ordered_results(result_map)
+                    yield stream_line(
+                        {
+                            "type": "result",
+                            "run_id": run_id,
+                            "batch_id": broker_result["batch_id"],
+                            "result": retried_result,
+                            "results": results,
+                        }
+                    )
+
+            results = ordered_results(result_map)
             update_profile_last_quote(payload.company_name, results)
-            clear_input_values(ss.worksheet(INPUT_TAB))
+            clear_input_values(spreadsheet_worksheet(ss, INPUT_TAB))
             yield stream_line(
                 {
                     "type": "complete",
@@ -780,8 +1105,13 @@ def run_quote_stream(payload: InputPayload):
                     "reset_form": payload_to_sheet_values(payload),
                 }
             )
+        except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError, GeneratorExit):
+            return
         except Exception as exc:
-            yield stream_line({"type": "error", "message": str(exc)})
+            try:
+                yield stream_line({"type": "error", "message": str(exc)})
+            except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError, GeneratorExit):
+                return
         finally:
             RUN_CANCEL_FLAGS.pop(run_id, None)
 

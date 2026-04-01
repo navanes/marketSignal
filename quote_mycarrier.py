@@ -1,4 +1,5 @@
 import argparse
+import math
 import os
 import re
 from pathlib import Path
@@ -25,12 +26,31 @@ def has_value(value) -> bool:
     return value is not None and str(value).strip() != ""
 
 
+def integer_string(value, *, round_up: bool = False) -> str:
+    if not has_value(value):
+        return ""
+    try:
+        number = float(str(value).strip())
+    except Exception:
+        return str(value).strip()
+    if round_up:
+        return str(int(math.ceil(number)))
+    return str(int(number))
+
+
 def normalize_space(value: str) -> str:
     return " ".join((value or "").split())
 
 
 def wait_after_step(page, multiplier=1):
     page.wait_for_timeout(STEP_DELAY_MS * multiplier)
+
+
+def current_body_text(page) -> str:
+    try:
+        return normalize_space(page.locator("body").inner_text())
+    except Exception:
+        return ""
 
 
 def set_input_value(locator, value: str):
@@ -81,15 +101,30 @@ def maybe_close_banner(page):
 
 def quote_line_items(data: dict):
     default_item = {
-        "count": str(data.get("pallets") or "1").strip() or "1",
-        "length": str(data.get("length") or "").strip(),
-        "width": str(data.get("width") or "").strip(),
-        "height": str(data.get("height") or "").strip(),
+        "count": integer_string(data.get("pallets") or "1") or "1",
+        "length": integer_string(data.get("length"), round_up=True),
+        "width": integer_string(data.get("width"), round_up=True),
+        "height": integer_string(data.get("height"), round_up=True),
         "freight_class": str(data.get("freight_class") or "").strip(),
-        "pieces": str(data.get("pieces") or "1").strip() or "1",
-        "weight": str(data.get("weight") or "").strip(),
+        "pieces": integer_string(data.get("pieces") or "1") or "1",
+        "weight": integer_string(data.get("weight"), round_up=True),
     }
     return [default_item]
+
+
+def login_complete(page) -> bool:
+    url = page.url or ""
+    body_text = current_body_text(page)
+    success_markers = [
+        "/ui/customer/home",
+        "/ui/customer/quote",
+        "LTL Quote",
+        "Quote History",
+        "Start a Quote",
+        "Home",
+        "Shipments",
+    ]
+    return any(marker in url or marker in body_text for marker in success_markers)
 
 
 def do_login(page, username: str, password: str):
@@ -99,22 +134,73 @@ def do_login(page, username: str, password: str):
     page.wait_for_load_state("networkidle", timeout=120000)
     page.locator("input[type=password]").first.fill(password)
     page.get_by_text("Continue", exact=True).click()
-    page.wait_for_load_state("domcontentloaded", timeout=120000)
-    page.wait_for_timeout(10000)
-    body_text = page.locator("body").inner_text()
-    if "/ui/customer/home" not in page.url and "LTL Quote" not in body_text and "Quote History" not in body_text:
-        page.screenshot(path="mycarrier_login_failed.png", full_page=True)
-        raise RuntimeError("MyCarrier login failed. Saved mycarrier_login_failed.png")
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=120000)
+    except Exception:
+        pass
+
+    for _ in range(12):
+        if login_complete(page):
+            return
+        try:
+            page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        page.wait_for_timeout(3000)
+
+    body_text = current_body_text(page)
+    Path("mycarrier_login_failed.html").write_text(page.content(), encoding="utf-8")
+    page.screenshot(path="mycarrier_login_failed.png", full_page=True)
+    raise RuntimeError(
+        f"MyCarrier login failed at URL {page.url!r}. "
+        f"Visible text sample: {body_text[:300]!r}. "
+        "Saved mycarrier_login_failed.png and mycarrier_login_failed.html"
+    )
 
 
 def goto_ltl_quote(page):
-    page.get_by_role("link", name="LTL Quote").click()
-    page.wait_for_load_state("domcontentloaded", timeout=120000)
-    page.wait_for_timeout(6000)
-    maybe_close_banner(page)
-    if "Shipment items" not in page.locator("body").inner_text():
-        page.screenshot(path="mycarrier_ltl_quote_missing.png", full_page=True)
-        raise RuntimeError("Could not open MyCarrier LTL Quote page. Saved mycarrier_ltl_quote_missing.png")
+    def quote_form_loaded() -> bool:
+        body_text = current_body_text(page)
+        return any(
+            marker in body_text
+            for marker in [
+                "Shipment items",
+                "Select Carrier",
+                "Deliver to: City/Zip or Address Book",
+            ]
+        )
+
+    attempts = [
+        ("sidebar LTL Quote", lambda: page.get_by_role("link", name="LTL Quote").click(timeout=5000)),
+        ("dashboard Start a Quote", lambda: page.get_by_role("button", name="Start a Quote").click(timeout=5000)),
+        ("direct /ui/customer/quote", lambda: page.goto("https://mycarriertms.com/ui/customer/quote", wait_until="domcontentloaded", timeout=120000)),
+    ]
+
+    for label, action in attempts:
+        try:
+            print(f"MyCarrier opening quote page via {label}...", flush=True)
+            action()
+        except Exception:
+            continue
+
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+        page.wait_for_timeout(6000)
+        maybe_close_banner(page)
+
+        if quote_form_loaded():
+            return
+
+    body_text = current_body_text(page)
+    Path("mycarrier_ltl_quote_missing.html").write_text(page.content(), encoding="utf-8")
+    page.screenshot(path="mycarrier_ltl_quote_missing.png", full_page=True)
+    raise RuntimeError(
+        f"Could not open MyCarrier quote page from URL {page.url!r}. "
+        f"Visible text sample: {body_text[:300]!r}. "
+        "Saved mycarrier_ltl_quote_missing.png and mycarrier_ltl_quote_missing.html"
+    )
 
 
 def ensure_origin_defaults_match(page, origin_zip: str):
@@ -165,43 +251,76 @@ def fill_destination(page, dest_zip: str):
     dest_input.type(dest_zip, delay=60)
     wait_after_step(page, 2)
 
+    def destination_selected() -> bool:
+        body_text = current_body_text(page)
+        if "Select result from list" in body_text:
+            return False
+        try:
+            value = normalize_space(dest_input.input_value())
+        except Exception:
+            value = ""
+        if value and value != normalize_space(dest_zip):
+            return True
+        if "Destination Zip:" in body_text and dest_zip in body_text:
+            return True
+        return False
+
     option_selectors = [
+        f"mat-option:has-text('{dest_zip}')",
+        f".mat-option:has-text('{dest_zip}')",
+        f"[role='option']:has-text('{dest_zip}')",
+        f".mat-option-text:has-text('{dest_zip}')",
         "mat-option",
         ".mat-option",
         ".mat-option-text",
         ".pac-item",
         ".address-lookup__results li",
         "[role='option']",
+        ".mat-mdc-option",
+        ".mdc-list-item",
     ]
-    for selector in option_selectors:
-        option = page.locator(selector).first
+    for _ in range(3):
+        for selector in option_selectors:
+            option = page.locator(selector).first
+            try:
+                if option.count() > 0 and option.is_visible():
+                    option.click(force=True)
+                    wait_after_step(page, 2)
+                    if destination_selected():
+                        print("MyCarrier destination selected from suggestions.", flush=True)
+                        return
+            except Exception:
+                pass
+
         try:
-            if option.count() > 0 and option.is_visible():
-                option.click(force=True)
-                wait_after_step(page, 2)
-                print("MyCarrier destination selected from suggestions.", flush=True)
+            dest_input.click(force=True)
+            dest_input.press("ArrowDown")
+            wait_after_step(page)
+            dest_input.press("Enter")
+            wait_after_step(page, 2)
+            if destination_selected():
+                print("MyCarrier destination selected by keyboard.", flush=True)
                 return
         except Exception:
             pass
 
-    try:
-        dest_input.press("ArrowDown")
-        wait_after_step(page)
-        dest_input.press("Enter")
-        wait_after_step(page, 2)
-        print("MyCarrier destination selected by keyboard.", flush=True)
-        return
-    except Exception:
-        pass
+        search_button = page.locator("#destination-addressesBox-72PT6Y button, [id^='destination-addressesBox-'] button").first
+        try:
+            if search_button.count() > 0:
+                search_button.click(force=True)
+                wait_after_step(page, 2)
+                if destination_selected():
+                    print("MyCarrier destination fallback search click used.", flush=True)
+                    return
+        except Exception:
+            pass
 
-    search_button = page.locator("#destination-addressesBox-72PT6Y button").first
-    try:
-        if search_button.count() > 0:
-            search_button.click(force=True)
-            wait_after_step(page, 2)
-            print("MyCarrier destination fallback search click used.", flush=True)
-    except Exception:
-        pass
+    page.screenshot(path="mycarrier_destination_selection_failed.png", full_page=True)
+    Path("mycarrier_destination_selection_failed.html").write_text(page.content(), encoding="utf-8")
+    raise RuntimeError(
+        "Could not confirm MyCarrier destination selection. "
+        "Saved mycarrier_destination_selection_failed.png and mycarrier_destination_selection_failed.html"
+    )
 
 
 def shipment_item_row(page, index: int):
@@ -265,47 +384,134 @@ def fill_shipment_items(page, data: dict):
 
 
 def submit_quote(page):
+    def results_loaded() -> bool:
+        try:
+            if page.locator("cup-delivery-day").count() > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            body_text = page.locator("body").inner_text()
+        except Exception:
+            return False
+        if "PRINT QUOTE" in body_text or re.search(r"\$[0-9,]+\.[0-9]{2}", body_text):
+            return True
+        return False
+
+    def insurance_validation_visible() -> bool:
+        body_text = current_body_text(page)
+        return (
+            "Cargo value required to rate with insurance" in body_text
+            or "Please correct errors to continue" in body_text
+        )
+
+    def clear_rate_with_insurance() -> bool:
+        print("MyCarrier clearing Rate with Insurance state...", flush=True)
+        cargo_input = page.locator("[data-testid='fvp-insurance-cargo-value-input']").first
+        checkbox_input = page.locator("[data-testid='fvp-insurance-checkbox'] input[type='checkbox']").first
+        checkbox_host = page.locator("mat-checkbox[data-testid='fvp-insurance-checkbox']").first
+        checkbox_label = page.locator("mat-checkbox[data-testid='fvp-insurance-checkbox'] label").first
+
+        try:
+            if cargo_input.count() > 0:
+                cargo_input.fill("")
+                cargo_input.press("Tab")
+                wait_after_step(page)
+        except Exception:
+            pass
+
+        click_targets = [checkbox_label, checkbox_host, checkbox_input]
+        for target in click_targets:
+            try:
+                if target.count() > 0 and target.is_visible():
+                    target.click(force=True, timeout=5000)
+                    wait_after_step(page, 2)
+                    if not insurance_validation_visible():
+                        return True
+            except Exception:
+                pass
+
+        try:
+            handle = checkbox_host.element_handle()
+            if handle:
+                page.evaluate("(el) => el.click()", handle)
+                wait_after_step(page, 2)
+        except Exception:
+            pass
+
+        return not insurance_validation_visible()
+
     insurance_checkbox = page.locator("[data-testid='fvp-insurance-checkbox'] input[type='checkbox']").first
+    insurance_host = page.locator("mat-checkbox[data-testid='fvp-insurance-checkbox']").first
     try:
         if insurance_checkbox.count() > 0 and insurance_checkbox.is_checked():
             print("MyCarrier disabling Rate with Insurance...", flush=True)
             insurance_checkbox.uncheck(force=True)
             wait_after_step(page, 2)
     except Exception:
-        try:
-            insurance_host = page.locator("[data-testid='fvp-insurance-checkbox']").first
-            if insurance_host.count() > 0:
-                aria_checked = insurance_host.get_attribute("aria-checked")
-                if aria_checked == "true":
-                    print("MyCarrier disabling Rate with Insurance via host click...", flush=True)
-                    insurance_host.click(force=True)
-                    wait_after_step(page, 2)
-        except Exception:
-            pass
+        pass
+
+    try:
+        if insurance_host.count() > 0:
+            classes = insurance_host.get_attribute("class") or ""
+            checked = "mat-checkbox-checked" in classes
+            if not checked and insurance_checkbox.count() > 0:
+                checked = insurance_checkbox.is_checked()
+            if checked:
+                print("MyCarrier disabling Rate with Insurance via host click...", flush=True)
+                insurance_host.click(force=True)
+                wait_after_step(page, 2)
+    except Exception:
+        pass
 
     print("MyCarrier clicking Select Carrier...", flush=True)
     button_host = page.locator("[data-testid='select-carrier-btn']").first
     button = page.locator("[data-testid='select-carrier-btn'] button, [data-testid='select-carrier-btn']").first
     button.scroll_into_view_if_needed()
-    try:
-        button.click(force=True)
-    except Exception:
-        pass
-    try:
-        button_host.click(force=True)
-    except Exception:
-        pass
-    try:
-        handle = button_host.element_handle()
-        if handle:
-            page.evaluate("(el) => el.click()", handle)
-    except Exception:
-        pass
-    page.wait_for_load_state("domcontentloaded", timeout=120000)
-    page.wait_for_timeout(12000)
-    maybe_close_banner(page)
+
+    for attempt in range(1, 4):
+        print(f"MyCarrier Select Carrier attempt {attempt}...", flush=True)
+        maybe_close_banner(page)
+        try:
+            button.click(force=True, timeout=5000)
+        except Exception:
+            pass
+        if results_loaded():
+            return
+        try:
+            button_host.click(force=True, timeout=5000)
+        except Exception:
+            pass
+        if results_loaded():
+            return
+        try:
+            box = button_host.bounding_box() or button.bounding_box()
+            if box:
+                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        except Exception:
+            pass
+        if results_loaded():
+            return
+        try:
+            handle = button_host.element_handle()
+            if handle:
+                page.evaluate("(el) => el.click()", handle)
+        except Exception:
+            pass
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+        page.wait_for_timeout(8000)
+        maybe_close_banner(page)
+        if insurance_validation_visible():
+            print("MyCarrier submit blocked by insurance validation; retrying without insurance.", flush=True)
+            clear_rate_with_insurance()
+        if results_loaded():
+            return
+
     body_text = page.locator("body").inner_text()
-    if "PRINT QUOTE" not in body_text and not re.search(r"\$[0-9,]+\.[0-9]{2}", body_text):
+    if not results_loaded():
         error_text = []
         for selector in ["mat-error", ".mat-error", ".bou-error-popover", ".error", "[aria-invalid='true']"]:
             try:
@@ -320,8 +526,12 @@ def submit_quote(page):
         if error_text:
             print("MyCarrier visible errors:", error_text, flush=True)
         print(f"MyCarrier result page not reached. URL={page.url}", flush=True)
+        Path("mycarrier_carrier_selection_missing.html").write_text(page.content(), encoding="utf-8")
         page.screenshot(path="mycarrier_carrier_selection_missing.png", full_page=True)
-        raise RuntimeError("MyCarrier carrier results did not load. Saved mycarrier_carrier_selection_missing.png")
+        raise RuntimeError(
+            "MyCarrier carrier results did not load. "
+            "Saved mycarrier_carrier_selection_missing.png and mycarrier_carrier_selection_missing.html"
+        )
 
 
 def scrape_results(page):

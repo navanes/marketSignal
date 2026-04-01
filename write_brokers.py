@@ -25,8 +25,8 @@ def gs_client():
 
 
 def build_broker_rows(spreadsheet):
-    input_sheet = spreadsheet.worksheet(INPUT_SHEET)
-    carriers_sheet = spreadsheet.worksheet(CARRIERS_SHEET)
+    input_sheet = with_gsheets_retry(lambda: spreadsheet.worksheet(INPUT_SHEET))
+    carriers_sheet = with_gsheets_retry(lambda: spreadsheet.worksheet(CARRIERS_SHEET))
 
     origin_zip = with_gsheets_retry(lambda: input_sheet.acell("B3").value)
     destination_zip = with_gsheets_retry(lambda: input_sheet.acell("B4").value)
@@ -76,8 +76,8 @@ def build_broker_rows(spreadsheet):
 
 
 def write_brokers(spreadsheet=None):
-    spreadsheet = spreadsheet or gs_client().open(SHEET_NAME)
-    broker_result = spreadsheet.worksheet(BROKER_RESULT_SHEET)
+    spreadsheet = spreadsheet or with_gsheets_retry(lambda: gs_client().open(SHEET_NAME))
+    broker_result = with_gsheets_retry(lambda: spreadsheet.worksheet(BROKER_RESULT_SHEET))
 
     payload = build_broker_rows(spreadsheet)
     rows_to_write = payload["rows"]

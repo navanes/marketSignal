@@ -4,6 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Freight Quote Agent</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/LOGO-blue.png?v=blue-circle" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/LOGO-blue.png?v=blue-circle" />
+  <link rel="shortcut icon" type="image/png" href="/LOGO-blue.png?v=blue-circle" />
+  <link rel="apple-touch-icon" href="/LOGO-blue.png?v=blue-circle" />
   <style>
     :root {
       --bg: #eef3ea;
@@ -19,6 +23,12 @@
     }
 
     * { box-sizing: border-box; }
+    html,
+    body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
     body {
       margin: 0;
       font-family: Georgia, "Times New Roman", serif;
@@ -29,6 +39,7 @@
     }
 
     .shell {
+      width: min(100%, 1080px);
       max-width: 1080px;
       margin: 0 auto;
       padding: 32px 20px 48px;
@@ -43,6 +54,7 @@
 
     .hero-card,
     .panel {
+      min-width: 0;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 24px;
@@ -90,7 +102,7 @@
 
     .summary img {
       display: block;
-      width: min(100%, 280px);
+      width: min(100%, 360px);
       height: auto;
       object-fit: contain;
       filter: sepia(0.5) saturate(0.45) hue-rotate(12deg) brightness(0.34) contrast(1.2);
@@ -171,6 +183,17 @@
       font-size: 16px;
     }
 
+    input[type="number"] {
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+
     select {
       width: 100%;
       padding: 12px 14px;
@@ -231,6 +254,56 @@
     .status.ok { color: var(--ok); }
     .status.err { color: var(--danger); }
 
+    .run-loader {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      background: rgba(248, 251, 243, 0.38);
+      backdrop-filter: blur(2px);
+      z-index: 60;
+      pointer-events: none;
+    }
+
+    .run-loader.show {
+      display: grid;
+    }
+
+    .run-loader-mark {
+      width: 160px;
+      height: 160px;
+      border-radius: 24px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,.92), rgba(245, 237, 213, .92)),
+        #fffdf7;
+      box-shadow: 0 18px 50px rgba(31, 54, 34, 0.16);
+      position: relative;
+      overflow: hidden;
+      animation: loaderPulse 1.15s ease-in-out infinite;
+    }
+
+    .run-loader-mark::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: url("/LOGO-blue.png");
+      background-repeat: no-repeat;
+      background-size: 144px auto;
+      background-position: center;
+      transform: scale(0.94);
+    }
+
+    @keyframes loaderPulse {
+      0%, 100% {
+        transform: scale(0.96);
+        opacity: 0.88;
+      }
+      50% {
+        transform: scale(1.04);
+        opacity: 1;
+      }
+    }
+
     .note {
       color: var(--muted);
       font-size: 13px;
@@ -264,12 +337,14 @@
       color: #123d2c;
       font-size: 20px;
       font-weight: 700;
+      overflow-wrap: anywhere;
     }
 
     .profile-summary .ps-line {
       color: #5b6a5c;
       font-size: 14px;
       font-weight: 600;
+      overflow-wrap: anywhere;
     }
 
     .company-picker {
@@ -352,6 +427,13 @@
       display: grid;
     }
 
+    .report-banner-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
     .report-banner .eyebrow-line {
       font-size: 12px;
       letter-spacing: .08em;
@@ -371,15 +453,43 @@
     }
 
     .result-item {
+      min-width: 0;
       padding: 14px;
       border-radius: 16px;
       background: white;
       border: 1px solid var(--line);
     }
 
+    .result-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
     .result-item h3 {
-      margin: 0 0 10px;
+      margin: 0;
       font-size: 18px;
+    }
+
+    .carrier-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(31, 107, 79, 0.18);
+      background: #eef6ec;
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .carrier-link:hover {
+      background: #e3f0e8;
     }
 
     .result-meta {
@@ -389,6 +499,7 @@
       gap: 8px 14px;
       color: var(--muted);
       font-size: 13px;
+      min-width: 0;
     }
 
     .result-debug {
@@ -396,6 +507,7 @@
       color: #7a3e00;
       font-size: 12px;
       line-height: 1.5;
+      overflow-wrap: anywhere;
     }
 
     .broker-list {
@@ -406,7 +518,7 @@
 
     .broker-row {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) auto;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.5fr) auto;
       gap: 10px;
       align-items: center;
       padding: 10px 12px;
@@ -416,9 +528,22 @@
       font-size: 13px;
     }
 
+    .broker-row > * {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
     .broker-row strong {
       color: var(--ink);
       font-size: 14px;
+    }
+
+    .broker-name {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
     }
 
     .result-skip {
@@ -437,6 +562,7 @@
       border-radius: 18px;
       background: linear-gradient(180deg, #f7fbf2, #eff6eb);
       border: 1px solid var(--line);
+      min-width: 0;
     }
 
     .calc-card {
@@ -496,6 +622,7 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
       margin-top: 12px;
+      min-width: 0;
     }
 
     .metric {
@@ -529,10 +656,21 @@
       .result-grid {
         grid-template-columns: 1fr;
       }
+
+      .shell {
+        padding-inline: 14px;
+      }
+
+      .broker-row {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
+  <div id="run-loader" class="run-loader" aria-hidden="true">
+    <div class="run-loader-mark" aria-hidden="true"></div>
+  </div>
   <div class="shell">
     <section class="hero">
       <div class="hero-card">
@@ -661,7 +799,10 @@
           <div class="metric"><span class="k">Batch ID</span><span id="batch-id" class="v">-</span></div>
         </div>
         <div id="report-banner" class="report-banner">
-          <div class="eyebrow-line">Cheapest Report</div>
+          <div class="report-banner-top">
+            <div class="eyebrow-line">Cheapest Report</div>
+            <div id="report-link-slot"></div>
+          </div>
           <div id="report-headline" class="headline">-</div>
           <div id="report-detail" class="detail">-</div>
         </div>
@@ -683,6 +824,8 @@
     const reportBannerEl = document.getElementById("report-banner");
     const reportHeadlineEl = document.getElementById("report-headline");
     const reportDetailEl = document.getElementById("report-detail");
+    const reportLinkSlotEl = document.getElementById("report-link-slot");
+    const runLoaderEl = document.getElementById("run-loader");
     const freightClassInput = document.getElementById("freight_class");
     const volumeEl = document.getElementById("calc-volume");
     const densityEl = document.getElementById("calc-density");
@@ -731,6 +874,61 @@
       return `$${Number(value).toFixed(2)}`;
     }
 
+    function normalizeCarrierKey(name) {
+      return String(name || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, " ")
+        .trim();
+    }
+
+    const carrierSiteMap = {
+      "GLT": "https://myportal.goglt.com/login",
+      "GLT LOGISTICS": "https://myportal.goglt.com/login",
+      "MYCARRIER": "https://app.mycarrierpackaging.com/",
+      "SCHNEIDER": "https://freightpower.schneider.com/shipper",
+      "TOTAL": "https://www.totalms.com/",
+      "TOTAL TRANSPORTATION": "https://www.totalms.com/",
+      "NUMARK": "https://numarktransportation.net/",
+      "CENTRAL TRANSPORT": "https://www.centraltransport.com/",
+      "CENTRAL TRANSPORTATION": "https://www.centraltransport.com/",
+      "TFORCE": "https://www.tforcefreight.com/",
+      "TFORCE FREIGHT": "https://www.tforcefreight.com/",
+      "TFORCE FREIGHT INC": "https://www.tforcefreight.com/",
+      "XPO": "https://www.xpo.com/",
+      "XPO LTL": "https://www.xpo.com/",
+      "ABF": "https://arcb.com/abf-freight",
+      "ABF FREIGHT": "https://arcb.com/abf-freight",
+      "R L CARRIERS": "https://www.rlcarriers.com/",
+      "R AND L CARRIERS": "https://www.rlcarriers.com/",
+      "DAYLIGHT TRANSPORT": "https://www.daylighttransport.com/",
+      "ESTES EXPRESS LINES": "https://www.estes-express.com/",
+      "FORWARD AIR": "https://www.forwardair.com/",
+      "SAIA": "https://www.saia.com/",
+      "ROADRUNNER": "https://freight.rrts.com/Pages/Home.aspx",
+      "ROADRUNNER FREIGHT": "https://freight.rrts.com/Pages/Home.aspx",
+      "ROADRUNNER TRANSPORTATION SERVICES INC": "https://www.shiproadrunnerfreight.com/",
+      "OLD DOMINION FREIGHT LINE INC": "https://www.odfl.com/",
+      "OAK HARBOR FREIGHT LINES INC": "https://www.oakharbor.com/",
+      "FEDEX FREIGHT": "https://www.fedex.com/en-us/shipping/freight-services.html",
+    };
+
+    function carrierSiteUrl(name) {
+      return carrierSiteMap[normalizeCarrierKey(name)] || "";
+    }
+
+    function carrierLinkMarkup(name) {
+      const href = carrierSiteUrl(name);
+      if (!href) return "";
+      return `<a class="carrier-link" href="${href}" target="_blank" rel="noopener noreferrer">Open Site</a>`;
+    }
+
+    function cheapestBrokerQuote(item) {
+      const brokerQuotes = Array.isArray(item?.broker_quotes) ? item.broker_quotes : [];
+      const priced = brokerQuotes.filter((quote) => quote && quote.price !== null && quote.price !== undefined && quote.price !== "");
+      if (!priced.length) return null;
+      return priced.reduce((best, quote) => Number(quote.price) < Number(best.price) ? quote : best, priced[0]);
+    }
+
     function cheapestQuote(results) {
       const allQuotes = [];
       for (const item of results || []) {
@@ -758,7 +956,7 @@
               transit_days: brokerQuote.transit_days,
               service_level: brokerQuote.service_level,
               time: brokerQuote.time,
-              source: "MYCARRIER",
+              source: item.carrier,
             });
           }
         }
@@ -819,6 +1017,7 @@
       saveProfileBtn.disabled = isRunning;
       deleteProfileBtn.disabled = isRunning;
       stopBtn.disabled = !isRunning;
+      runLoaderEl.classList.toggle("show", isRunning);
     }
 
     function renderPalletEditor() {
@@ -984,10 +1183,12 @@
         reportBannerEl.classList.add("show");
         reportHeadlineEl.textContent = `${cheapest.carrier} is the cheapest at ${formatPrice(cheapest.price)}`;
         reportDetailEl.textContent = `${cheapest.transit_days ?? "-"} day(s)${cheapest.service_level ? ` | ${cheapest.service_level}` : ""}${cheapest.time ? ` | ${cheapest.time}` : ""}${cheapest.source ? ` | Source: ${cheapest.source}` : ""}`;
+        reportLinkSlotEl.innerHTML = carrierLinkMarkup(cheapest.carrier);
       } else {
         reportBannerEl.classList.remove("show");
         reportHeadlineEl.textContent = "-";
         reportDetailEl.textContent = "-";
+        reportLinkSlotEl.innerHTML = "";
       }
       for (const item of results) {
         const inputs = item.inputs || {};
@@ -996,11 +1197,16 @@
         const wrapper = document.createElement("div");
         wrapper.className = "result-item";
         const brokerQuotes = Array.isArray(item.broker_quotes) ? item.broker_quotes : [];
+        const bestBrokerQuote = cheapestBrokerQuote(item);
         wrapper.innerHTML = `
-          <h3>${item.carrier || "-"}</h3>
+          <div class="result-head">
+            <h3>${item.carrier || "-"}</h3>
+            ${carrierLinkMarkup(item.carrier)}
+          </div>
           <div class="result-grid">
             <div class="metric"><span class="k">Price</span><span class="v">${formatPrice(item.price)}</span></div>
             <div class="metric"><span class="k">Transit Days</span><span class="v">${item.transit_days ?? "-"}</span></div>
+            ${bestBrokerQuote ? `<div class="metric"><span class="k">Carrier</span><span class="v">${bestBrokerQuote.carrier || "-"}</span></div>` : ""}
           </div>
           <div class="result-meta">
             <div><strong>Origin:</strong> ${inputs.origin_zip || "-"} ${inputs.origin_city || ""}</div>
@@ -1026,11 +1232,14 @@
             </div>
           ` : ""}
           ${brokerQuotes.length ? `
-            <div class="result-debug"><strong>MyCarrier quotes:</strong> ${brokerQuotes.length}</div>
+            <div class="result-debug"><strong>Broker quotes:</strong> ${brokerQuotes.length}</div>
             <div class="broker-list">
               ${brokerQuotes.map((quote) => `
                 <div class="broker-row">
-                  <strong>${quote.carrier || "-"}</strong>
+                  <div class="broker-name">
+                    <strong>${quote.carrier || "-"}</strong>
+                    ${carrierLinkMarkup(quote.carrier)}
+                  </div>
                   <span>${quote.service_level || "-"} | ${quote.transit_days ?? "-"} day(s) | ${quote.time || "-"}</span>
                   <strong>${formatPrice(quote.price)}</strong>
                 </div>
@@ -1303,16 +1512,13 @@
     });
 
     stopBtn.addEventListener("click", async () => {
-      if (currentAbortController) {
-        currentAbortController.abort();
-      }
       if (currentRunId) {
         try {
           await postJson("/api/stop", { run_id: currentRunId });
         } catch {}
+      } else if (currentAbortController) {
+        currentAbortController.abort();
       }
-      currentRunId = "";
-      setRunningState(false);
       setStatus("Stop requested. The current carrier may finish, but the next carrier will not start.", "err");
     });
 
