@@ -207,6 +207,14 @@ def profile_summary(record):
     return {}
 
 
+def no_cache_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
+
 def profile_input_data_from_payload(payload: "InputPayload") -> dict:
     return payload.model_dump(exclude={"quote_target"})
 
@@ -936,17 +944,22 @@ def update_profile_last_quote(company_name: str, results: list[dict], latest_pro
 
 @app.get("/")
 def home():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers=no_cache_headers())
 
 
 @app.get("/Windgate.png")
 def windgate_logo():
-    return FileResponse(BASE_DIR / "Windgate.png")
+    return FileResponse(BASE_DIR / "Windgate.png", headers=no_cache_headers())
 
 
 @app.get("/LOGO-blue.png")
 def loader_logo():
-    return FileResponse(BASE_DIR / "LOGO-blue.png")
+    return FileResponse(BASE_DIR / "LOGO-blue.png", headers=no_cache_headers())
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(BASE_DIR / "LOGO-blue.png", headers=no_cache_headers(), media_type="image/png")
 
 
 @app.post("/api/input")
