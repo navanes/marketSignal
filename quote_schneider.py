@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import re
+from datetime import date, datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -42,6 +43,10 @@ def normalize_space(value: str) -> str:
     return " ".join((value or "").split())
 
 
+def log_step(message: str):
+    print(f"SCHNEIDER: {message}", flush=True)
+
+
 def wait_after_step(page, multiplier=1):
     page.wait_for_timeout(STEP_DELAY_MS * multiplier)
 
@@ -70,15 +75,203 @@ def set_input_value(locator, value: str):
     wait_after_step(locator.page)
 
 
+def set_date_input_value(locator, value: str):
+    locator.wait_for(state="visible", timeout=20000)
+    locator.scroll_into_view_if_needed()
+    locator.click(force=True)
+    locator.evaluate(
+        """
+        (el, val) => {
+            el.removeAttribute('readonly');
+            const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeSetter.call(el, val);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.dispatchEvent(new Event('blur', { bubbles: true }));
+        }
+        """,
+        str(value),
+    )
+    locator.press("Tab")
+    wait_after_step(locator.page, 2)
+
+
+def first_visible(page, selectors):
+    for selector in selectors:
+        locator = page.locator(selector)
+        try:
+            count = locator.count()
+        except Exception:
+            continue
+        for idx in range(count):
+            candidate = locator.nth(idx)
+            try:
+                if candidate.is_visible():
+                    return candidate
+            except Exception:
+                continue
+    return page.locator("__never_matches__").first
+
+
+def format_schneider_date(value: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return datetime.now().strftime("%b %d %Y")
+    parsed = None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%-m/%-d/%Y", "%Y/%m/%d"):
+        try:
+            parsed = datetime.strptime(raw, fmt)
+            break
+        except ValueError:
+            pass
+    if not parsed:
+        return raw
+    if parsed.date() < date.today():
+        today_value = datetime.now().strftime("%b %d %Y")
+        log_step(f"shipment date {raw} is in the past; using today {today_value} instead")
+        return today_value
+    return parsed.strftime("%b %d %Y")
+
+
+def parse_schneider_date(value: str) -> date:
+    raw = str(value or "").strip()
+    if not raw:
+        return date.today()
+    for fmt in ("%b %d %Y", "%Y-%m-%d", "%m/%d/%Y", "%-m/%-d/%Y", "%Y/%m/%d"):
+        try:
+            parsed = datetime.strptime(raw, fmt).date()
+            if parsed < date.today():
+                log_step(f"shipment date {raw} is in the past; using today instead")
+                return date.today()
+            return parsed
+        except ValueError:
+            pass
+    return date.today()
+
+
+def schneider_decline_detected(body_text: str) -> bool:
+    body_upper = (body_text or "").upper()
+    return (
+        "AREN’T ABLE TO PROVIDE A FREIGHTPOWER QUOTE" in body_upper
+        or "AREN'T ABLE TO PROVIDE A FREIGHTPOWER QUOTE" in body_upper
+        or "CONTACT YOUR SCHNEIDER REPRESENTATIVE" in body_upper
+        or "CUSTOMER CARE TEAM" in body_upper
+    )
+
+
 def choose_dropdown_option(dropdown, option_text: str, page):
     dropdown.scroll_into_view_if_needed()
-    dropdown.click(force=True)
+    combobox = dropdown.locator("input[role='combobox']").first
+    if combobox.count() > 0:
+        combobox.click(force=True)
+        try:
+            combobox.fill("")
+        except Exception:
+            pass
+        combobox.type(option_text, delay=25)
+        wait_after_step(page, 2)
+    else:
+        dropdown.click(force=True)
+        wait_after_step(page, 2)
+
+    candidates = [
+        page.get_by_role("option", name=re.compile(re.escape(option_text), re.I)),
+        page.get_by_text(re.compile(re.escape(option_text), re.I)),
+        page.locator(f"text={option_text}"),
+    ]
+    for candidate in candidates:
+        try:
+            count = candidate.count()
+        except Exception:
+            continue
+        for idx in range(count):
+            option = candidate.nth(idx)
+            try:
+                if not option.is_visible():
+                    continue
+                option.click(force=True)
+                wait_after_step(page, 2)
+                return
+            except Exception:
+                continue
+
+    if combobox.count() > 0:
+        try:
+            combobox.press("ArrowDown")
+            wait_after_step(page)
+            combobox.press("Enter")
+            wait_after_step(page, 2)
+            return
+        except Exception:
+            pass
+
+    page.screenshot(path="schneider_dropdown_option_failed.png", full_page=True)
+    raise RuntimeError(
+        f"Could not select Schneider dropdown option {option_text!r}. Saved schneider_dropdown_option_failed.png"
+    )
+
+
+def set_pickup_date(page, input_locator, target_date: date):
+    input_locator.scroll_into_view_if_needed()
+    input_locator.click(force=True)
+    dialog = page.locator(".MuiDialog-root [role='dialog']").last
+    dialog.wait_for(state="visible", timeout=10000)
+
+    header = dialog.locator(".MuiPickersCalendarHeader-label").first
+    prev_month = dialog.get_by_role("button", name="Previous month").first
+    next_month = dialog.get_by_role("button", name="Next month").first
+
+    for _ in range(24):
+        current_month = normalize_space(header.inner_text())
+        shown = datetime.strptime(current_month, "%B %Y").date()
+        month_start = date(shown.year, shown.month, 1)
+        target_month_start = date(target_date.year, target_date.month, 1)
+        if month_start == target_month_start:
+            break
+        if month_start < target_month_start:
+            next_month.click(force=True)
+        else:
+            prev_month.click(force=True)
+        wait_after_step(page, 2)
+    else:
+        raise RuntimeError("Could not navigate Schneider date picker to the target month")
+
+    day_buttons = dialog.locator("button[role='gridcell']")
+    exact_enabled = None
+    next_enabled = None
+    for idx in range(day_buttons.count()):
+        candidate = day_buttons.nth(idx)
+        try:
+            label = normalize_space(candidate.text_content() or "")
+        except Exception:
+            continue
+        if not label.isdigit():
+            continue
+        day_number = int(label)
+        disabled_attr = candidate.get_attribute("disabled")
+        enabled = disabled_attr is None
+        if day_number == target_date.day and enabled:
+            exact_enabled = candidate
+            break
+        if day_number >= target_date.day and enabled and next_enabled is None:
+            next_enabled = candidate
+    selected = exact_enabled or next_enabled
+    if selected is None:
+        raise RuntimeError(f"Could not find an enabled Schneider day cell on or after {target_date.day}")
+    selected_label = normalize_space(selected.text_content() or "")
+    if selected_label != str(target_date.day):
+        log_step(f"requested day {target_date.day} is not selectable; using next available day {selected_label}")
+    selected.wait_for(state="visible", timeout=10000)
+    selected.click(force=True)
+    wait_after_step(page)
+
+    dialog.get_by_role("button", name="OK").click(force=True)
     wait_after_step(page, 2)
 
-    option = page.get_by_text(option_text, exact=True).last
-    option.wait_for(state="visible", timeout=10000)
-    option.click(force=True)
-    wait_after_step(page, 2)
+    expected = target_date.strftime("%b ") + f"{int(selected_label):02d} {target_date.year}"
+    actual = normalize_space(input_locator.input_value())
+    if actual != expected:
+        raise RuntimeError(f"Schneider pickup date did not stick. Expected {expected!r}, got {actual!r}")
 
 
 def schneider_line_items(data: dict):
@@ -156,6 +349,23 @@ def fill_shipping_details(page, data: dict):
     set_input_value(postal_inputs.nth(0), str(data.get("origin_zip") or "").strip())
     set_input_value(postal_inputs.nth(1), str(data.get("dest_zip") or "").strip())
 
+    shipment_date_input = first_visible(
+        page,
+        [
+            "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'pickup date')]/following::input[not(@type='hidden')]",
+            "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'ship date')]/following::input[not(@type='hidden')]",
+            "xpath=//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'shipping date')]/following::input[not(@type='hidden')]",
+            "xpath=(//input[(contains(@name,'date') or contains(@id,'date') or contains(@placeholder,'date') or contains(@aria-label,'date') or contains(@name,'Date') or contains(@id,'Date') or contains(@placeholder,'Date') or contains(@aria-label,'Date')) and not(@type='hidden')])[1]",
+        ],
+    )
+    if shipment_date_input.count() > 0:
+        shipment_date_value = format_schneider_date(data.get("shipment_date") or data.get("pickup_date"))
+        shipment_date = parse_schneider_date(shipment_date_value)
+        log_step(f"setting shipment date to {shipment_date.strftime('%b %d %Y')}")
+        set_pickup_date(page, shipment_date_input, shipment_date)
+    else:
+        log_step("shipment date input not found; Schneider may keep its default date")
+
     dropdowns = page.locator("[data-testid='dropdown']")
     if dropdowns.count() < 3:
         page.screenshot(path="schneider_dropdowns_missing.png", full_page=True)
@@ -203,11 +413,21 @@ def quote_results_loaded(page) -> bool:
 
 
 def submit_quote(page):
+    log_step("clicking Get quote")
     page.get_by_role("button", name="Get quote").click(force=True)
 
     for _ in range(45):
         if quote_results_loaded(page):
+            log_step("quote results loaded")
             return
+        body_text = current_body_text(page)
+        if schneider_decline_detected(body_text):
+            Path("schneider_quote_submit_failed.html").write_text(page.content(), encoding="utf-8")
+            page.screenshot(path="schneider_quote_submit_failed.png", full_page=True)
+            print(f"SCHNEIDER DECLINE PAGE: {body_text[:700]}", flush=True)
+            raise RuntimeError(
+                "Schneider declined this shipment in FreightPower. Saved schneider_quote_submit_failed.png and schneider_quote_submit_failed.html"
+            )
         try:
             page.wait_for_load_state("networkidle", timeout=4000)
         except Exception:
@@ -279,13 +499,18 @@ def quote_schneider(data: dict, *, headless: bool = True, slow_mo: int = 0, keep
         browser = p.chromium.launch(headless=headless, slow_mo=slow_mo)
         page = browser.new_page(viewport={"width": 1700, "height": 1800})
         try:
+            log_step("logging in")
             do_login(page, username, password)
+            log_step("opening quote form")
             goto_quote_form(page)
+            log_step("filling shipping details")
             fill_shipping_details(page, data)
+            log_step("filling commodities")
             fill_commodities(page, data)
             page.screenshot(path="schneider_before_submit.png", full_page=True)
             submit_quote(page)
             page.screenshot(path="schneider_results.png", full_page=True)
+            log_step("scraping results")
             results = scrape_results(page)
             if keep_open_ms > 0:
                 print(f"Schneider keeping browser open for {keep_open_ms} ms", flush=True)

@@ -4,3 +4,5 @@ gspread
 google-auth
 python-dotenv
 playwright
+python-multipart
+openai

@@ -1,10 +1,13 @@
 import asyncio
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+import base64
 from datetime import date
 from uuid import uuid4
 import json
+import os
 from pathlib import Path
 import re
+import socket
 import sys
 from typing import Optional
 
@@ -18,12 +21,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import gspread
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.oauth2.service_account import Credentials
 from pydantic import BaseModel, Field
+
+load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
 
 try:
     from quote_central import quote_central
@@ -85,6 +91,38 @@ def default_form_values():
         "shipment_date": today_form_date(),
     }
 
+
+def local_ipv4_addresses() -> list[str]:
+    seen: set[str] = set()
+    addresses: list[str] = []
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            host = sock.getsockname()[0]
+            if host and not host.startswith("127."):
+                seen.add(host)
+                addresses.append(host)
+    except OSError:
+        pass
+
+    try:
+        host = socket.gethostbyname(socket.gethostname())
+        if host and not host.startswith("127.") and host not in seen:
+            seen.add(host)
+            addresses.append(host)
+    except OSError:
+        pass
+
+    return addresses
+
+
+def local_mdns_hostname() -> str:
+    host = (socket.gethostname() or "").strip()
+    if not host:
+        return ""
+    return host if host.endswith(".local") else f"{host}.local"
+
 app = FastAPI(title="Freight Quote Agent Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 RUN_CANCEL_FLAGS: dict[str, bool] = {}
@@ -103,6 +141,26 @@ RESULT_DISPLAY_ORDER = [
     "NUMARK",
     "TFORCE",
 ]
+ASSISTANT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+ASSISTANT_SYSTEM_PROMPT = """You are the in-app assistant for Windgate's Freight Quote Agent.
+
+Your job is to help users fill out the quote form, understand quoting results, troubleshoot issues, and explain next steps clearly.
+
+Rules:
+- Be concise, practical, and specific to the current page.
+- Prefer short bullet points or short step lists over long essays.
+- Use the actual form fields and latest results from context when available.
+- If a screenshot is attached, inspect it carefully and reference visible UI details.
+- If there is an error, structure the reply around:
+  1. likely cause
+  2. what to check now
+  3. whether to escalate
+- If the user should escalate, explicitly tell them to copy diagnostics and paste them to the developer.
+- Do not claim you changed the app or fixed the backend. You are a support assistant inside the app.
+- Do not invent missing values. If required data is missing, say exactly what is missing.
+- If the user asks about shipment values, freight class, pallet setup, or quoting workflow, answer directly.
+- If context includes recent quote results, use them.
+"""
 
 
 def gs_client():
@@ -149,6 +207,10 @@ def profile_summary(record):
     return {}
 
 
+def profile_input_data_from_payload(payload: "InputPayload") -> dict:
+    return payload.model_dump(exclude={"quote_target"})
+
+
 class PalletItem(BaseModel):
     pallet_number: int
     pieces: int = Field(default=1)
@@ -162,6 +224,7 @@ class PalletItem(BaseModel):
 class InputPayload(BaseModel):
     company_name: Optional[str] = Field(default="")
     order_number: Optional[str] = Field(default="")
+    quote_target: Optional[str] = Field(default="ALL")
     origin_zip: str
     destination_zip: str
     pallet_count: int
@@ -175,6 +238,93 @@ class InputPayload(BaseModel):
     delivery_city: Optional[str] = Field(default="")
     shipment_date: Optional[str] = Field(default="")
     pallet_items: list[PalletItem] = Field(default_factory=list)
+
+
+class AssistantMessage(BaseModel):
+    role: str
+    text: str
+
+
+class AssistantContext(BaseModel):
+    form: Optional[dict] = None
+    latest_results: list[dict] = Field(default_factory=list)
+    status_text: Optional[str] = ""
+
+
+def assistant_client():
+    api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_API_KEY") or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is missing from .env")
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="The openai package is not installed. Add it to the environment before using the assistant.",
+        ) from exc
+    return OpenAI(api_key=api_key)
+
+
+def safe_json_load(text: str | None, fallback):
+    if not text:
+        return fallback
+    try:
+        return json.loads(text)
+    except Exception:
+        return fallback
+
+
+def compact_assistant_context(raw_context: dict) -> dict:
+    context = raw_context if isinstance(raw_context, dict) else {}
+    form = context.get("form") if isinstance(context.get("form"), dict) else {}
+    results = context.get("latest_results") if isinstance(context.get("latest_results"), list) else []
+    compact_results = []
+    for item in results[:8]:
+        if not isinstance(item, dict):
+            continue
+        compact_results.append(
+            {
+                "carrier": item.get("carrier"),
+                "price": item.get("price"),
+                "transit_days": item.get("transit_days"),
+                "status": item.get("status"),
+                "error": item.get("error"),
+                "broker_quote_count": item.get("broker_quote_count"),
+            }
+        )
+    return {
+        "status_text": str(context.get("status_text") or "").strip(),
+        "form": form,
+        "latest_results": compact_results,
+    }
+
+
+def build_assistant_input(history: list[dict], user_message: str, context: dict, screenshot_data_url: str = ""):
+    input_messages = []
+    for item in history[-8:]:
+        role = str(item.get("role") or "").strip().lower()
+        text = str(item.get("text") or "").strip()
+        if role not in {"user", "assistant"} or not text:
+            continue
+        input_messages.append({"role": role, "content": text})
+
+    context_json = json.dumps(context, ensure_ascii=True)
+    context_text = f"Page context:\n{context_json}"
+    if user_message.strip():
+        context_text = f"{context_text}\n\nUser request:\n{user_message.strip()}"
+
+    if screenshot_data_url:
+        user_parts = [{"type": "input_text", "text": context_text}]
+        user_parts.append(
+            {
+                "type": "input_image",
+                "image_url": screenshot_data_url,
+            }
+        )
+        input_messages.append({"role": "user", "content": user_parts})
+    else:
+        input_messages.append({"role": "user", "content": context_text})
+    return input_messages
 
 
 def density_to_freight_class(density: float) -> str:
@@ -492,13 +642,12 @@ def run_glt_job(quote_data: dict):
             "covered_direct_carriers": glt_covered_direct_carriers(raw_glt_results),
         }
     except Exception as exc:
-        if should_skip_carrier_error(str(exc)):
-            return {
-                "carrier": "GLT",
-                "wrapped": skipped_result("GLT", quote_data, exc),
-                "covered_direct_carriers": set(),
-            }
-        raise
+        print(f"GLT quote failed: {exc}", flush=True)
+        return {
+            "carrier": "GLT",
+            "wrapped": skipped_result("GLT", quote_data, exc),
+            "covered_direct_carriers": set(),
+        }
 
 
 def run_schneider_job(quote_data: dict):
@@ -511,13 +660,12 @@ def run_schneider_job(quote_data: dict):
             "covered_direct_carriers": set(),
         }
     except Exception as exc:
-        if should_skip_carrier_error(str(exc)):
-            return {
-                "carrier": "SCHNEIDER",
-                "wrapped": skipped_result("SCHNEIDER", quote_data, exc),
-                "covered_direct_carriers": set(),
-            }
-        raise
+        print(f"SCHNEIDER quote failed: {exc}", flush=True)
+        return {
+            "carrier": "SCHNEIDER",
+            "wrapped": skipped_result("SCHNEIDER", quote_data, exc),
+            "covered_direct_carriers": set(),
+        }
 
 
 def run_mycarrier_job(quote_data: dict):
@@ -530,13 +678,12 @@ def run_mycarrier_job(quote_data: dict):
             "covered_direct_carriers": mycarrier_covered_direct_carriers(raw_mycarrier_results),
         }
     except Exception as exc:
-        if should_skip_carrier_error(str(exc)):
-            return {
-                "carrier": "MYCARRIER",
-                "wrapped": skipped_result("MYCARRIER", quote_data, exc),
-                "covered_direct_carriers": set(),
-            }
-        raise
+        print(f"MYCARRIER quote failed: {exc}", flush=True)
+        return {
+            "carrier": "MYCARRIER",
+            "wrapped": skipped_result("MYCARRIER", quote_data, exc),
+            "covered_direct_carriers": set(),
+        }
 
 
 def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict):
@@ -548,13 +695,12 @@ def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict):
             "direct_result": result,
         }
     except Exception as exc:
-        if should_skip_carrier_error(str(exc)):
-            return {
-                "carrier": carrier_name,
-                "wrapped": skipped_result(carrier_name, quote_data, exc),
-                "direct_result": None,
-            }
-        raise
+        print(f"{carrier_name} quote failed: {exc}", flush=True)
+        return {
+            "carrier": carrier_name,
+            "wrapped": skipped_result(carrier_name, quote_data, exc),
+            "direct_result": None,
+        }
 
 
 def run_jobs_limited(jobs: list[tuple[str, callable]], *, max_workers: int, should_stop=None):
@@ -601,6 +747,29 @@ def carrier_queue():
         ]
     )
     return carriers
+
+
+def available_quote_targets() -> list[dict[str, str]]:
+    targets = [{"value": "ALL", "label": "All Carriers + Brokers"}]
+    if WEBAPP_ENABLE_GLT:
+        targets.append({"value": "GLT", "label": "GLT"})
+    if not WEBAPP_GLT_ONLY_DEBUG:
+        targets.extend(
+            [
+                {"value": "SCHNEIDER", "label": "SCHNEIDER"},
+                {"value": "MYCARRIER", "label": "MYCARRIER"},
+            ]
+        )
+        targets.extend({"value": carrier_name, "label": carrier_name} for carrier_name, _ in carrier_queue())
+    return targets
+
+
+def normalized_quote_target(value: str | None) -> str:
+    raw = str(value or "ALL").strip().upper() or "ALL"
+    allowed = {item["value"] for item in available_quote_targets()}
+    if raw not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported quote target: {raw}")
+    return raw
 
 
 def normalize_carrier_key(name: str) -> str:
@@ -698,10 +867,22 @@ def glt_covered_direct_carriers(raw_results: list[dict]) -> set[str]:
     return covered
 
 
-def update_profile_last_quote(company_name: str, results: list[dict]):
+def update_profile_last_quote(company_name: str, results: list[dict], latest_profile_data: Optional[dict] = None):
     name = (company_name or "").strip()
-    if not name or not results:
+    if not name:
         return
+    profiles = load_profiles()
+    record = profiles.get(name, {})
+    stored_data = latest_profile_data if isinstance(latest_profile_data, dict) and latest_profile_data else (profile_data(record) or {})
+
+    if not results:
+        profiles[name] = {
+            "data": stored_data,
+            "last_quote_summary": profile_summary(record),
+        }
+        save_profiles(profiles)
+        return
+
     priced = []
     for item in results:
         broker_quotes = item.get("broker_quotes") or []
@@ -721,12 +902,16 @@ def update_profile_last_quote(company_name: str, results: list[dict]):
         if item.get("price") not in (None, "", 0, 0.0):
             priced.append(item)
     if not priced:
+        profiles[name] = {
+            "data": stored_data,
+            "last_quote_summary": profile_summary(record),
+        }
+        save_profiles(profiles)
         return
+
     cheapest = min(priced, key=lambda item: float(item.get("price")))
-    profiles = load_profiles()
-    record = profiles.get(name, {})
     profiles[name] = {
-        "data": profile_data(record) or {},
+        "data": stored_data,
         "last_quote_summary": {
             "carrier": cheapest.get("carrier", ""),
             "price": cheapest.get("price"),
@@ -776,6 +961,86 @@ def get_profiles():
     return {"ok": True, "profiles": load_profiles()}
 
 
+@app.get("/api/network-info")
+def network_info(request: Request):
+    scheme = request.url.scheme or "http"
+    port = request.url.port
+    if port is None:
+        port = 443 if scheme == "https" else 80
+
+    def build_url(host: str) -> str:
+        default_port = 443 if scheme == "https" else 80
+        port_suffix = "" if port == default_port else f":{port}"
+        return f"{scheme}://{host}{port_suffix}"
+
+    lan_urls = [build_url(ip) for ip in local_ipv4_addresses()]
+    hostname = local_mdns_hostname()
+    hostname_url = build_url(hostname) if hostname else ""
+
+    return {
+        "ok": True,
+        "lan_urls": lan_urls,
+        "hostname_url": hostname_url,
+        "current_origin": str(request.base_url).rstrip("/"),
+        "quote_targets": available_quote_targets(),
+    }
+
+
+@app.post("/api/assistant")
+async def assistant_reply(
+    message: str = Form(default=""),
+    history: str = Form(default="[]"),
+    context: str = Form(default="{}"),
+    screenshot: UploadFile | None = File(default=None),
+):
+    user_message = str(message or "").strip()
+    if not user_message and screenshot is None:
+        raise HTTPException(status_code=400, detail="Enter a message or attach a screenshot.")
+
+    history_items = safe_json_load(history, [])
+    context_payload = compact_assistant_context(safe_json_load(context, {}))
+
+    screenshot_data_url = ""
+    screenshot_name = ""
+    if screenshot is not None:
+        screenshot_bytes = await screenshot.read()
+        if not screenshot_bytes:
+            raise HTTPException(status_code=400, detail="Attached screenshot is empty.")
+        if len(screenshot_bytes) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Screenshot is too large. Keep it under 5 MB.")
+        content_type = (screenshot.content_type or "").strip().lower()
+        if content_type not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+            raise HTTPException(status_code=400, detail="Use a PNG, JPEG, WEBP, or GIF screenshot.")
+        encoded = base64.b64encode(screenshot_bytes).decode("ascii")
+        screenshot_data_url = f"data:{content_type};base64,{encoded}"
+        screenshot_name = screenshot.filename or "screenshot"
+
+    client = assistant_client()
+    input_messages = build_assistant_input(history_items, user_message, context_payload, screenshot_data_url)
+
+    try:
+        response = client.responses.create(
+            model=ASSISTANT_MODEL,
+            instructions=ASSISTANT_SYSTEM_PROMPT,
+            input=input_messages,
+            text={"verbosity": "medium"},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Assistant request failed: {exc}") from exc
+
+    answer = str(getattr(response, "output_text", "") or "").strip()
+    if not answer:
+        answer = "I could not generate a usable reply. Try rephrasing the question or attaching a clearer screenshot."
+
+    return {
+        "ok": True,
+        "answer": answer,
+        "model": ASSISTANT_MODEL,
+        "used_screenshot": bool(screenshot_data_url),
+        "screenshot_name": screenshot_name,
+    }
+
+
 class ProfilePayload(BaseModel):
     company_name: str
     data: InputPayload
@@ -789,7 +1054,7 @@ def save_profile(payload: ProfilePayload):
         raise HTTPException(status_code=400, detail="Company name is required")
     existing = profiles.get(name, {})
     profiles[name] = {
-        "data": payload.data.model_dump(),
+        "data": profile_input_data_from_payload(payload.data),
         "last_quote_summary": profile_summary(existing),
     }
     save_profiles(profiles)
@@ -832,24 +1097,32 @@ def run_quote(payload: InputPayload):
             raise HTTPException(status_code=400, detail=broker_result["message"])
 
         quote_data = payload_to_quote_data(payload)
+        quote_target = normalized_quote_target(payload.quote_target)
+        run_all_targets = quote_target == "ALL"
         result_map: dict[str, dict] = {}
         covered_direct_carriers = set()
+        direct_carriers = carrier_queue()
 
         initial_jobs = []
-        if WEBAPP_ENABLE_GLT:
+        if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
             initial_jobs.append(("GLT", lambda quote_data=quote_data: run_glt_job(quote_data)))
         if not WEBAPP_GLT_ONLY_DEBUG:
-            initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
-            initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
+            if run_all_targets or quote_target == "SCHNEIDER":
+                initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
+            if run_all_targets or quote_target == "MYCARRIER":
+                initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
 
         for _, job_result in run_jobs_limited(initial_jobs, max_workers=INITIAL_PARALLEL_WORKERS):
             upsert_result(result_map, job_result["wrapped"])
             covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
 
-        if not WEBAPP_GLT_ONLY_DEBUG:
+        selected_direct_target = None if run_all_targets else quote_target
+        if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
             queued_direct = []
-            for carrier_name, fn in carrier_queue():
-                if carrier_name in covered_direct_carriers:
+            for carrier_name, fn in direct_carriers:
+                if selected_direct_target and carrier_name != selected_direct_target:
+                    continue
+                if run_all_targets and carrier_name in covered_direct_carriers:
                     upsert_result(
                         result_map,
                         skipped_result(
@@ -881,11 +1154,13 @@ def run_quote(payload: InputPayload):
                     write_direct_result(ss, job_result["carrier"], job_result["direct_result"], quote_data)
                 upsert_result(result_map, job_result["wrapped"])
 
-            for carrier_name, fn in carrier_queue():
+            for carrier_name, fn in direct_carriers:
+                if selected_direct_target and carrier_name != selected_direct_target:
+                    continue
                 existing_result = result_map.get(carrier_name)
                 if not existing_result or not should_retry_skipped_result(existing_result):
                     continue
-                if carrier_name in covered_direct_carriers or fn is None:
+                if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
                     continue
                 retried_job = run_direct_carrier_job(carrier_name, fn, quote_data)
                 if retried_job.get("direct_result") is not None:
@@ -899,13 +1174,11 @@ def run_quote(payload: InputPayload):
 
         results = ordered_results(result_map)
 
-        update_profile_last_quote(payload.company_name, results)
-
-        clear_input_values(spreadsheet_worksheet(ss, INPUT_TAB))
+        update_profile_last_quote(payload.company_name, results, profile_input_data_from_payload(payload))
 
         return {
             "ok": True,
-            "message": "Input saved, broker rows prepared, and carrier quotes written.",
+            "message": "Input saved, broker rows prepared, and carrier quotes written. Latest input values were kept in the Input sheet.",
             "batch_id": broker_result["batch_id"],
             "broker_rows_written": broker_result["row_count"],
             "results": results,
@@ -936,8 +1209,11 @@ def run_quote_stream(payload: InputPayload):
                 return
 
             quote_data = payload_to_quote_data(payload)
+            quote_target = normalized_quote_target(payload.quote_target)
+            run_all_targets = quote_target == "ALL"
             result_map: dict[str, dict] = {}
             covered_direct_carriers = set()
+            direct_carriers = carrier_queue()
             yield stream_line(
                 {
                     "type": "started",
@@ -948,11 +1224,13 @@ def run_quote_stream(payload: InputPayload):
             )
 
             initial_jobs = []
-            if WEBAPP_ENABLE_GLT:
+            if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
                 initial_jobs.append(("GLT", lambda quote_data=quote_data: run_glt_job(quote_data)))
             if not WEBAPP_GLT_ONLY_DEBUG:
-                initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
-                initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
+                if run_all_targets or quote_target == "SCHNEIDER":
+                    initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
+                if run_all_targets or quote_target == "MYCARRIER":
+                    initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
 
             if initial_jobs:
                 yield stream_line({"type": "status", "message": "Quoting broker portals in parallel..."})
@@ -970,7 +1248,8 @@ def run_quote_stream(payload: InputPayload):
                     }
                 )
 
-            if not WEBAPP_GLT_ONLY_DEBUG:
+            selected_direct_target = None if run_all_targets else quote_target
+            if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
                 if RUN_CANCEL_FLAGS.get(run_id):
                     yield stream_line(
                         {
@@ -984,8 +1263,10 @@ def run_quote_stream(payload: InputPayload):
                     return
 
                 direct_jobs = []
-                for carrier_name, fn in carrier_queue():
-                    if carrier_name in covered_direct_carriers:
+                for carrier_name, fn in direct_carriers:
+                    if selected_direct_target and carrier_name != selected_direct_target:
+                        continue
+                    if run_all_targets and carrier_name in covered_direct_carriers:
                         wrapped = skipped_result(
                             carrier_name,
                             quote_data,
@@ -1059,11 +1340,13 @@ def run_quote_stream(payload: InputPayload):
                     )
                     return
 
-                for carrier_name, fn in carrier_queue():
+                for carrier_name, fn in direct_carriers:
+                    if selected_direct_target and carrier_name != selected_direct_target:
+                        continue
                     existing_result = result_map.get(carrier_name)
                     if not existing_result or not should_retry_skipped_result(existing_result):
                         continue
-                    if carrier_name in covered_direct_carriers or fn is None:
+                    if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
                         continue
                     yield stream_line(
                         {
@@ -1092,13 +1375,12 @@ def run_quote_stream(payload: InputPayload):
                     )
 
             results = ordered_results(result_map)
-            update_profile_last_quote(payload.company_name, results)
-            clear_input_values(spreadsheet_worksheet(ss, INPUT_TAB))
+            update_profile_last_quote(payload.company_name, results, profile_input_data_from_payload(payload))
             yield stream_line(
                 {
                     "type": "complete",
                     "run_id": run_id,
-                    "message": "Quotes completed and written to Broker Result.",
+                    "message": "Quotes completed and written to Broker Result. Latest input values were kept in the Input sheet.",
                     "batch_id": broker_result["batch_id"],
                     "broker_rows_written": broker_result["row_count"],
                     "results": results,

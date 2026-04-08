@@ -39,10 +39,10 @@
     }
 
     .shell {
-      width: min(100%, 1080px);
-      max-width: 1080px;
+      width: min(100%, 1460px);
+      max-width: 1460px;
       margin: 0 auto;
-      padding: 32px 20px 48px;
+      padding: 32px 28px 56px;
     }
 
     .hero {
@@ -121,7 +121,11 @@
     }
 
     .panel {
-      padding: 24px;
+      padding: 28px;
+    }
+
+    .workspace {
+      display: block;
     }
 
     .panel-head {
@@ -204,7 +208,26 @@
       font-size: 16px;
     }
 
+    textarea {
+      width: 100%;
+      min-height: 132px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 15px;
+      line-height: 1.5;
+      resize: vertical;
+      font-family: inherit;
+    }
+
     input:focus {
+      outline: 2px solid rgba(31, 107, 79, 0.18);
+      border-color: var(--brand);
+    }
+
+    textarea:focus {
       outline: 2px solid rgba(31, 107, 79, 0.18);
       border-color: var(--brand);
     }
@@ -214,6 +237,108 @@
       gap: 12px;
       align-items: center;
       flex-wrap: wrap;
+    }
+
+    .run-target-picker {
+      position: relative;
+      min-width: 260px;
+      max-width: 100%;
+      flex: 0 1 300px;
+    }
+
+    .run-target-trigger {
+      width: 100%;
+      min-height: 54px;
+      padding: 12px 18px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      text-align: left;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.9);
+    }
+
+    .run-target-trigger:hover {
+      transform: none;
+      border-color: #98b9a7;
+      background: #fcfdf9;
+    }
+
+    .run-target-trigger:focus-visible {
+      outline: 2px solid rgba(31, 107, 79, 0.18);
+      border-color: var(--brand);
+    }
+
+    .run-target-picker.open .run-target-trigger {
+      border-color: #5b8ef1;
+      box-shadow: 0 0 0 2px rgba(91, 142, 241, 0.14);
+    }
+
+    .run-target-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .run-target-chevron {
+      flex: 0 0 auto;
+      width: 12px;
+      height: 12px;
+      border-right: 2px solid currentColor;
+      border-bottom: 2px solid currentColor;
+      transform: rotate(45deg) translateY(-2px);
+      transition: transform .18s ease;
+      opacity: 0.7;
+      margin-right: 4px;
+    }
+
+    .run-target-picker.open .run-target-chevron {
+      transform: rotate(225deg) translateY(-1px);
+    }
+
+    .target-dropdown {
+      min-width: 100%;
+      max-width: 360px;
+    }
+
+    .target-option {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 15px;
+      color: var(--ink);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .target-option:hover,
+    .target-option.active {
+      background: #eef6ec;
+      color: var(--brand);
+      transform: none;
+    }
+
+    .target-option-mark {
+      color: #5b8ef1;
+      font-weight: 700;
+      opacity: 0;
+    }
+
+    .target-option.active .target-option-mark {
+      opacity: 1;
     }
 
     button {
@@ -310,6 +435,51 @@
       line-height: 1.5;
     }
 
+    .share-banner {
+      margin: 12px 0 0;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid #b7d2c2;
+      background: linear-gradient(135deg, #eef8f2, #fbf6e8);
+      display: grid;
+      gap: 6px;
+    }
+
+    .share-banner.hidden {
+      display: none !important;
+    }
+
+    .share-label {
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      font-weight: 700;
+    }
+
+    .share-links {
+      display: grid;
+      gap: 6px;
+    }
+
+    .share-link {
+      color: #123d2c;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    .share-link:hover {
+      text-decoration: underline;
+    }
+
+    .share-help {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .profile-summary {
       display: none;
       min-height: 18px;
@@ -345,6 +515,10 @@
       font-size: 14px;
       font-weight: 600;
       overflow-wrap: anywhere;
+    }
+
+    .profile-summary-row {
+      grid-column: 1 / -1;
     }
 
     .company-picker {
@@ -406,6 +580,393 @@
     }
 
     .result.show { display: block; }
+
+    .assistant-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(30, 42, 31, 0.22);
+      backdrop-filter: blur(3px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .22s ease;
+      z-index: 79;
+    }
+
+    .assistant-launcher {
+      position: fixed;
+      right: 26px;
+      bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      width: 72px;
+      height: 72px;
+      border-radius: 999px;
+      border: 0;
+      background: #2e2f31;
+      box-shadow: 0 20px 40px rgba(30, 42, 31, 0.22);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 81;
+    }
+
+    .assistant-launcher:hover {
+      transform: translateY(-2px) scale(1.02);
+    }
+
+    .assistant-launcher-bubble {
+      position: relative;
+      width: 38px;
+      height: 30px;
+      border-radius: 999px;
+      background: white;
+      display: block;
+    }
+
+    .assistant-launcher-bubble::after {
+      content: "";
+      position: absolute;
+      left: 6px;
+      bottom: -6px;
+      width: 13px;
+      height: 13px;
+      background: white;
+      clip-path: polygon(0 0, 100% 22%, 42% 100%);
+    }
+
+    .assistant-launcher-line {
+      position: absolute;
+      left: 9px;
+      height: 3px;
+      border-radius: 999px;
+      background: #2e2f31;
+    }
+
+    .assistant-launcher-line.line-1 {
+      top: 8px;
+      width: 20px;
+    }
+
+    .assistant-launcher-line.line-2 {
+      top: 14px;
+      width: 16px;
+    }
+
+    .assistant-launcher-line.line-3 {
+      top: 20px;
+      width: 22px;
+    }
+
+    .assistant-panel {
+      position: fixed;
+      right: 26px;
+      bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+      width: min(700px, calc(100vw - 28px));
+      max-height: min(78vh, 820px);
+      padding: 24px;
+      display: grid;
+      grid-template-rows: auto minmax(180px, 1fr) auto;
+      gap: 16px;
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.98), rgba(247, 250, 245, .99)),
+        var(--panel);
+      box-shadow: 0 28px 70px rgba(31, 54, 34, 0.24);
+      opacity: 0;
+      transform: translateY(18px) scale(.98);
+      pointer-events: none;
+      transition: opacity .22s ease, transform .22s ease;
+      z-index: 80;
+    }
+
+    body.assistant-open {
+      overflow: hidden;
+    }
+
+    body.assistant-open .assistant-backdrop {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    body.assistant-open .assistant-panel {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .assistant-head {
+      display: grid;
+      gap: 6px;
+    }
+
+    .assistant-head-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: start;
+      gap: 12px;
+    }
+
+    .assistant-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 0 0 auto;
+    }
+
+    .assistant-head-copy {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .assistant-head h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .assistant-head p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    .assistant-help {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .assistant-help-toggle {
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #f2f6ee;
+      color: var(--brand);
+      font-size: 22px;
+      line-height: 1;
+      font-weight: 700;
+    }
+
+    .assistant-help-toggle:hover {
+      transform: none;
+      background: #ebf1e7;
+    }
+
+    .assistant-help-popover {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      width: min(520px, calc(100vw - 72px));
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid #d8e4d3;
+      background: linear-gradient(180deg, rgba(255,255,255,.99), rgba(245, 248, 239, .99));
+      box-shadow: 0 22px 45px rgba(31, 54, 34, 0.16);
+      opacity: 0;
+      transform: translateY(6px);
+      pointer-events: none;
+      transition: opacity .18s ease, transform .18s ease;
+      z-index: 6;
+    }
+
+    .assistant-help.open .assistant-help-popover,
+    .assistant-help:focus-within .assistant-help-popover {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    @media (hover: hover) {
+      .assistant-help:hover .assistant-help-popover {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+    }
+
+    .assistant-guide-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .assistant-section {
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid #d8e4d3;
+      background: linear-gradient(180deg, #fbfdf8, #f4f8ef);
+      min-width: 0;
+    }
+
+    .assistant-section-title {
+      margin: 0 0 8px;
+      color: var(--brand);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    .assistant-list {
+      margin: 0;
+      padding-left: 17px;
+      color: var(--muted);
+      display: grid;
+      gap: 4px;
+      font-size: 11px;
+      line-height: 1.38;
+    }
+
+    .assistant-list strong {
+      color: var(--ink);
+    }
+
+    .assistant-close {
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #f2f6ee;
+      color: var(--ink);
+      font-size: 24px;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
+    .assistant-close:hover {
+      transform: none;
+      background: #ebf1e7;
+    }
+
+    .assistant-status {
+      min-height: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .assistant-status.err {
+      color: var(--danger);
+    }
+
+    .assistant-status.ok {
+      color: var(--ok);
+    }
+
+    .assistant-messages {
+      display: grid;
+      gap: 10px;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .assistant-bubble {
+      display: grid;
+      gap: 7px;
+      padding: 14px 15px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .assistant-bubble.user {
+      background: #eef6ec;
+      border-color: #c7ddcb;
+    }
+
+    .assistant-bubble.assistant {
+      background: #fffdf7;
+    }
+
+    .assistant-role {
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--brand);
+      font-weight: 700;
+    }
+
+    .assistant-text {
+      white-space: pre-wrap;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .assistant-meta {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .assistant-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    #assistant-input {
+      min-height: 104px;
+      max-height: 160px;
+    }
+
+    .assistant-tools {
+      display: grid;
+      gap: 8px;
+    }
+
+    .assistant-upload {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #eef3eb;
+      color: var(--ink);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .assistant-file {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .assistant-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .assistant-actions button {
+      width: 100%;
+      min-height: 48px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.2;
+      text-align: center;
+    }
+
+    .assistant-actions .primary {
+      grid-column: 2;
+    }
+
+    .assistant-actions .danger {
+      background: #f5e7e4;
+      color: var(--danger);
+      border: 1px solid #e2b9b0;
+    }
+
+    .assistant-note {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
 
     .result-list {
       display: grid;
@@ -643,26 +1204,202 @@
     .metric .v {
       display: block;
       margin-top: 6px;
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 700;
     }
 
     @media (max-width: 900px) {
-      .hero,
-      .grid,
-      .calc-strip,
-      .pallet-grid,
-      .result-meta,
-      .result-grid {
+      .hero {
         grid-template-columns: 1fr;
       }
 
       .shell {
-        padding-inline: 14px;
+        padding: 14px 10px 110px;
+      }
+
+      .hero-card,
+      .panel {
+        border-radius: 22px;
+      }
+
+      .hero-card,
+      .panel,
+      .assistant-panel {
+        padding: 18px;
+      }
+
+      .panel-head {
+        margin-bottom: 14px;
+      }
+
+      .panel-head h2 {
+        font-size: 20px;
+      }
+
+      .panel-head p,
+      .sub {
+        font-size: 14px;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      label {
+        font-size: 11px;
+      }
+
+      input,
+      select,
+      textarea {
+        font-size: 14px;
+      }
+
+      input,
+      select {
+        min-height: 48px;
+        padding: 10px 12px;
+      }
+
+      textarea {
+        min-height: 104px;
+      }
+
+      .actions {
+        gap: 10px;
+      }
+
+      .actions > button {
+        flex: 1 1 calc(50% - 5px);
+      }
+
+      .share-banner {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 14px;
+      }
+
+      .share-link {
+        font-size: 13px;
+      }
+
+      .share-help {
+        font-size: 11px;
+      }
+
+      .profile-summary.show {
+        gap: 4px;
+        margin-top: 2px;
+        padding: 10px 12px;
+        border-radius: 14px;
+      }
+
+      .profile-summary .ps-top {
+        font-size: 13px;
+      }
+
+      .profile-summary .ps-main {
+        font-size: 16px;
+        line-height: 1.35;
+      }
+
+      .profile-summary .ps-line {
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .status {
+        width: 100%;
+        order: 20;
+      }
+
+      .calc-strip,
+      .result-grid,
+      .result-meta {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .pallet-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .broker-row {
         grid-template-columns: 1fr;
+      }
+
+      .assistant-launcher {
+        right: 14px;
+        bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+        width: 64px;
+        height: 64px;
+      }
+
+      .assistant-panel {
+        right: 12px;
+        bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+        width: calc(100vw - 24px);
+        max-height: min(82vh, 760px);
+        border-radius: 24px;
+      }
+
+      .assistant-help-popover {
+        right: -44px;
+        width: min(420px, calc(100vw - 32px));
+      }
+
+      .assistant-guide-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .assistant-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .assistant-actions .primary {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 520px) {
+      h1 {
+        font-size: 2rem;
+      }
+
+      .summary {
+        padding: 18px;
+      }
+
+      .summary img {
+        width: min(100%, 300px);
+      }
+
+      .panel-head {
+        display: block;
+      }
+
+      .calc-strip {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        padding: 10px;
+      }
+
+      .calc-card,
+      .metric {
+        padding: 10px;
+      }
+
+      .calc-card .v,
+      .metric .v {
+        font-size: 17px;
+      }
+
+      .assistant-head h2 {
+        font-size: 22px;
+      }
+
+      #assistant-input {
+        min-height: 82px;
       }
     }
   </style>
@@ -683,11 +1420,17 @@
       </aside>
     </section>
 
+    <div class="workspace">
     <section class="panel">
       <div class="panel-head">
         <div>
           <h2>Quote Request</h2>
           <p>This runs on your machine. Keep the browser windows open while the carrier automations are working.</p>
+          <div id="share-banner" class="share-banner hidden">
+            <div class="share-label">Open On Other Devices</div>
+            <div id="share-links" class="share-links"></div>
+            <div class="share-help">Share one of these links with colleagues on the same Wi-Fi network.</div>
+          </div>
         </div>
       </div>
 
@@ -699,11 +1442,13 @@
               <input id="profile_select" name="profile_select" placeholder="Select or type a company" autocomplete="off" />
               <div id="profile_dropdown" class="company-dropdown"></div>
             </div>
-            <div id="profile-summary" class="profile-summary"></div>
           </div>
           <div class="field">
             <label for="profile_name">Save Company Name</label>
             <input id="profile_name" name="profile_name" placeholder="Example: Acme Corp" autocomplete="off" />
+          </div>
+          <div class="profile-summary-row">
+            <div id="profile-summary" class="profile-summary"></div>
           </div>
           <div class="field">
             <label for="order_number">Order Number</label>
@@ -784,6 +1529,14 @@
         <div class="note">Freight class is calculated automatically from the dimensions and weight shown above.</div>
 
         <div class="actions">
+          <div id="quote-target-picker" class="run-target-picker">
+            <input id="quote-target" name="quote_target" type="hidden" value="ALL" />
+            <button id="quote-target-trigger" class="run-target-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="quote-target-dropdown">
+              <span id="quote-target-label" class="run-target-label">All Carriers + Brokers</span>
+              <span class="run-target-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="quote-target-dropdown" class="company-dropdown target-dropdown" role="listbox" aria-label="Quote target"></div>
+          </div>
           <button class="primary" id="run-btn" type="submit">Run Full Quote Flow</button>
           <button class="secondary" id="save-btn" type="button">Only Save Inputs</button>
           <button class="secondary" id="save-profile-btn" type="button">Save Company</button>
@@ -809,16 +1562,98 @@
         <div id="result-list" class="result-list"></div>
       </div>
     </section>
+    </div>
   </div>
+
+  <div id="assistant-backdrop" class="assistant-backdrop" aria-hidden="true"></div>
+  <button id="assistant-launcher" class="assistant-launcher" type="button" aria-expanded="false" aria-controls="assistant-panel" aria-label="Open quote assistant">
+    <span class="assistant-launcher-bubble" aria-hidden="true">
+      <span class="assistant-launcher-line line-1"></span>
+      <span class="assistant-launcher-line line-2"></span>
+      <span class="assistant-launcher-line line-3"></span>
+    </span>
+  </button>
+
+  <aside id="assistant-panel" class="panel assistant-panel" aria-hidden="true">
+    <div class="assistant-head">
+      <div class="assistant-head-top">
+        <div class="assistant-head-copy">
+          <div class="eyebrow">AI Support</div>
+          <h2>Quote Assistant</h2>
+          <p>Use the assistant to understand the form, explain quote results, troubleshoot visible errors, and prepare clean diagnostics when you need support.</p>
+        </div>
+        <div class="assistant-head-actions">
+          <div id="assistant-help" class="assistant-help">
+            <button id="assistant-help-toggle" class="assistant-help-toggle" type="button" aria-label="Assistant help" aria-expanded="false">?</button>
+            <div id="assistant-help-popover" class="assistant-help-popover" aria-hidden="true">
+              <div class="assistant-guide-grid">
+                <section class="assistant-section">
+                  <h3 class="assistant-section-title">What It Can Do</h3>
+                  <ul class="assistant-list">
+                    <li>Explain each form field and tell you what is missing before a run.</li>
+                    <li>Read latest quote results and summarize what happened.</li>
+                    <li>Inspect screenshots and help troubleshoot visible page errors.</li>
+                    <li>Use current form values, status text, and recent run events as context.</li>
+                  </ul>
+                </section>
+                <section class="assistant-section">
+                  <h3 class="assistant-section-title">Buttons And Features</h3>
+                  <ul class="assistant-list">
+                    <li><strong>Attach Screenshot:</strong> sends the current screenshot with your question.</li>
+                    <li><strong>Clear Chat:</strong> resets the conversation and removes old assistant replies.</li>
+                    <li><strong>Troubleshoot Error:</strong> drafts a debugging prompt from the current page state.</li>
+                    <li><strong>Copy for Codex:</strong> copies diagnostics you can paste into the developer chat.</li>
+                    <li><strong>Ask Assistant:</strong> sends your question with current app context.</li>
+                  </ul>
+                </section>
+              </div>
+            </div>
+          </div>
+          <button id="assistant-close" class="assistant-close" type="button" aria-label="Close assistant">&times;</button>
+        </div>
+      </div>
+      <div id="assistant-status" class="assistant-status"></div>
+    </div>
+
+    <div id="assistant-messages" class="assistant-messages"></div>
+
+    <form id="assistant-form" class="assistant-form">
+      <textarea id="assistant-input" placeholder="Ask a question about the form, quote results, or an error you are seeing..."></textarea>
+
+      <div class="assistant-tools">
+        <label class="assistant-upload">
+          Attach Screenshot
+          <input id="assistant-screenshot" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+        </label>
+        <div id="assistant-file" class="assistant-file">No screenshot attached.</div>
+      </div>
+
+      <div class="assistant-actions">
+        <button class="secondary" id="assistant-clear" type="button">Clear Chat</button>
+        <button class="danger" id="assistant-troubleshoot" type="button">Troubleshoot Error</button>
+        <button class="secondary" id="assistant-diagnostics" type="button">Copy for Codex</button>
+        <button class="primary" id="assistant-send" type="submit">Ask Assistant</button>
+      </div>
+
+      <div class="assistant-note">Press Enter to send. Press Shift+Enter for a new line.</div>
+    </form>
+  </aside>
 
   <script>
     const form = document.getElementById("quote-form");
     const runBtn = document.getElementById("run-btn");
+    const quoteTargetEl = document.getElementById("quote-target");
+    const quoteTargetPickerEl = document.getElementById("quote-target-picker");
+    const quoteTargetTriggerEl = document.getElementById("quote-target-trigger");
+    const quoteTargetLabelEl = document.getElementById("quote-target-label");
+    const quoteTargetDropdownEl = document.getElementById("quote-target-dropdown");
     const saveBtn = document.getElementById("save-btn");
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const deleteProfileBtn = document.getElementById("delete-profile-btn");
     const stopBtn = document.getElementById("stop-btn");
     const statusEl = document.getElementById("status");
+    const shareBannerEl = document.getElementById("share-banner");
+    const shareLinksEl = document.getElementById("share-links");
     const resultEl = document.getElementById("result");
     const resultListEl = document.getElementById("result-list");
     const reportBannerEl = document.getElementById("report-banner");
@@ -839,16 +1674,77 @@
     const singlePalletFieldsEl = document.getElementById("single-pallet-fields");
     const palletEditorEl = document.getElementById("pallet-editor");
     const palletListEl = document.getElementById("pallet-list");
+    const assistantFormEl = document.getElementById("assistant-form");
+    const assistantPanelEl = document.getElementById("assistant-panel");
+    const assistantMessagesEl = document.getElementById("assistant-messages");
+    const assistantInputEl = document.getElementById("assistant-input");
+    const assistantScreenshotEl = document.getElementById("assistant-screenshot");
+    const assistantFileEl = document.getElementById("assistant-file");
+    const assistantStatusEl = document.getElementById("assistant-status");
+    const assistantSendEl = document.getElementById("assistant-send");
+    const assistantClearEl = document.getElementById("assistant-clear");
+    const assistantTroubleshootEl = document.getElementById("assistant-troubleshoot");
+    const assistantDiagnosticsEl = document.getElementById("assistant-diagnostics");
+    const assistantLauncherEl = document.getElementById("assistant-launcher");
+    const assistantCloseEl = document.getElementById("assistant-close");
+    const assistantBackdropEl = document.getElementById("assistant-backdrop");
+    const assistantHelpEl = document.getElementById("assistant-help");
+    const assistantHelpToggleEl = document.getElementById("assistant-help-toggle");
+    const assistantHelpPopoverEl = document.getElementById("assistant-help-popover");
 
     let latestResults = [];
+    let latestBatchId = "";
+    let activeQuoteSignature = "";
+    let pendingRunContext = null;
+    let recentRunEvents = [];
     let currentRunId = "";
     let currentAbortController = null;
     let profiles = {};
     let visibleProfileNames = [];
+    let quoteTargets = [{ value: "ALL", label: "All Carriers + Brokers" }];
+    let lastAssistantModel = "";
+    let lastAssistantError = "";
+    let assistantOpen = false;
+    let assistantHelpOpen = false;
+    let assistantHistory = [
+      {
+        role: "assistant",
+        text: "I can help you use this page, explain quote issues, inspect screenshots, and prepare diagnostics for the developer if something breaks.",
+        meta: "Uses current form, status, and result context",
+      },
+    ];
 
     function setStatus(text, kind = "") {
       statusEl.textContent = text;
       statusEl.className = `status ${kind}`;
+    }
+
+    function setAssistantStatus(text, kind = "") {
+      assistantStatusEl.textContent = text;
+      assistantStatusEl.className = `assistant-status ${kind}`;
+    }
+
+    function setAssistantOpen(nextOpen) {
+      assistantOpen = Boolean(nextOpen);
+      if (!assistantOpen) {
+        setAssistantHelpOpen(false);
+      }
+      document.body.classList.toggle("assistant-open", assistantOpen);
+      assistantPanelEl.setAttribute("aria-hidden", assistantOpen ? "false" : "true");
+      assistantBackdropEl.setAttribute("aria-hidden", assistantOpen ? "false" : "true");
+      assistantLauncherEl.setAttribute("aria-expanded", assistantOpen ? "true" : "false");
+      if (assistantOpen) {
+        window.setTimeout(() => {
+          assistantInputEl.focus({ preventScroll: true });
+        }, 120);
+      }
+    }
+
+    function setAssistantHelpOpen(nextOpen) {
+      assistantHelpOpen = Boolean(nextOpen);
+      assistantHelpEl.classList.toggle("open", assistantHelpOpen);
+      assistantHelpToggleEl.setAttribute("aria-expanded", assistantHelpOpen ? "true" : "false");
+      assistantHelpPopoverEl.setAttribute("aria-hidden", assistantHelpOpen ? "false" : "true");
     }
 
     function todayIso() {
@@ -874,11 +1770,110 @@
       return `$${Number(value).toFixed(2)}`;
     }
 
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
     function normalizeCarrierKey(name) {
       return String(name || "")
         .toUpperCase()
         .replace(/[^A-Z0-9]+/g, " ")
         .trim();
+    }
+
+    function normalizeQuoteTargetValue(value) {
+      return String(value || "ALL").trim().toUpperCase() || "ALL";
+    }
+
+    function isAllQuoteTarget(value) {
+      return normalizeQuoteTargetValue(value) === "ALL";
+    }
+
+    function normalizeSignatureText(value) {
+      return String(value || "").trim();
+    }
+
+    function normalizeSignatureNumber(value) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : 0;
+    }
+
+    function quoteSignature(payload = {}) {
+      const palletItems = Array.isArray(payload.pallet_items) ? payload.pallet_items : [];
+      return JSON.stringify({
+        company_name: normalizeSignatureText(payload.company_name),
+        origin_zip: normalizeSignatureText(payload.origin_zip),
+        destination_zip: normalizeSignatureText(payload.destination_zip),
+        pickup_city: normalizeSignatureText(payload.pickup_city),
+        delivery_city: normalizeSignatureText(payload.delivery_city),
+        shipment_date: normalizeSignatureText(payload.shipment_date),
+        pallet_count: normalizeSignatureNumber(payload.pallet_count),
+        length_in: normalizeSignatureNumber(payload.length_in),
+        width_in: normalizeSignatureNumber(payload.width_in),
+        height_in: normalizeSignatureNumber(payload.height_in),
+        weight_lb: normalizeSignatureNumber(payload.weight_lb),
+        pieces: normalizeSignatureNumber(payload.pieces),
+        freight_class: normalizeSignatureText(payload.freight_class),
+        pallet_items: palletItems.map((item) => ({
+          pallet_number: normalizeSignatureNumber(item?.pallet_number),
+          pieces: normalizeSignatureNumber(item?.pieces),
+          length_in: normalizeSignatureNumber(item?.length_in ?? item?.length),
+          width_in: normalizeSignatureNumber(item?.width_in ?? item?.width),
+          height_in: normalizeSignatureNumber(item?.height_in ?? item?.height),
+          weight_lb: normalizeSignatureNumber(item?.weight_lb ?? item?.weight),
+          freight_class: normalizeSignatureText(item?.freight_class),
+        })),
+      });
+    }
+
+    function mergeResultsByCarrier(existing = [], incoming = []) {
+      const merged = Array.isArray(existing) ? existing.map((item) => ({ ...item })) : [];
+      const indexByCarrier = new Map();
+      merged.forEach((item, index) => {
+        indexByCarrier.set(normalizeCarrierKey(item?.carrier), index);
+      });
+
+      for (const item of Array.isArray(incoming) ? incoming : []) {
+        const carrierKey = normalizeCarrierKey(item?.carrier);
+        if (!carrierKey) continue;
+        const existingIndex = indexByCarrier.get(carrierKey);
+        if (existingIndex === undefined) {
+          indexByCarrier.set(carrierKey, merged.length);
+          merged.push(item);
+        } else {
+          merged[existingIndex] = item;
+        }
+      }
+
+      return merged;
+    }
+
+    function applyResultState(results = [], batchId = "", options = {}) {
+      const { appendMode = false } = options;
+      const incoming = Array.isArray(results) ? results : [];
+      latestResults = appendMode ? mergeResultsByCarrier(latestResults, incoming) : incoming;
+      latestBatchId = batchId || latestBatchId;
+      showResult({ batch_id: latestBatchId, results: latestResults });
+    }
+
+    function prepareRunContext(payload) {
+      const signature = quoteSignature(payload);
+      const target = normalizeQuoteTargetValue(payload?.quote_target);
+      const appendMode = !isAllQuoteTarget(target) && latestResults.length > 0 && activeQuoteSignature === signature;
+
+      if (!appendMode) {
+        latestResults = [];
+        latestBatchId = "";
+      }
+
+      activeQuoteSignature = signature;
+      pendingRunContext = { signature, target, appendMode };
+      return pendingRunContext;
     }
 
     const carrierSiteMap = {
@@ -901,6 +1896,7 @@
       "R L CARRIERS": "https://www.rlcarriers.com/",
       "R AND L CARRIERS": "https://www.rlcarriers.com/",
       "DAYLIGHT TRANSPORT": "https://www.daylighttransport.com/",
+      "ESTES EXPRESS": "https://www.estes-express.com/",
       "ESTES EXPRESS LINES": "https://www.estes-express.com/",
       "FORWARD AIR": "https://www.forwardair.com/",
       "SAIA": "https://www.saia.com/",
@@ -1013,11 +2009,15 @@
 
     function setRunningState(isRunning) {
       runBtn.disabled = isRunning;
+      quoteTargetTriggerEl.disabled = isRunning;
       saveBtn.disabled = isRunning;
       saveProfileBtn.disabled = isRunning;
       deleteProfileBtn.disabled = isRunning;
       stopBtn.disabled = !isRunning;
       runLoaderEl.classList.toggle("show", isRunning);
+      if (isRunning) {
+        hideQuoteTargetDropdown();
+      }
     }
 
     function renderPalletEditor() {
@@ -1172,6 +2172,128 @@
       return payload;
     }
 
+    function assistantContextPayload() {
+      let formData = {};
+      try {
+        formData = formPayload();
+      } catch {}
+      return {
+        form: formData,
+        latest_results: latestResults,
+        status_text: statusEl.textContent || "",
+      };
+    }
+
+    function assistantDiagnosticsPayload() {
+      return {
+        generated_at: new Date().toISOString(),
+        page_url: window.location.href,
+        user_agent: navigator.userAgent,
+        status_text: statusEl.textContent || "",
+        assistant_status: assistantStatusEl.textContent || "",
+        assistant_model: lastAssistantModel || "",
+        assistant_error: lastAssistantError || "",
+        current_run_id: currentRunId || "",
+        current_form: assistantContextPayload().form,
+        latest_results: latestResults,
+        recent_run_events: recentRunEvents,
+        recent_chat: assistantHistory.slice(-6).map(({ role, text, meta }) => ({
+          role,
+          text,
+          meta: meta || "",
+        })),
+      };
+    }
+
+    async function copyAssistantDiagnostics() {
+      const payload = assistantDiagnosticsPayload();
+      const text = [
+        "Freight Quote Agent Diagnostics for Codex",
+        JSON.stringify(payload, null, 2),
+      ].join("\n\n");
+      await navigator.clipboard.writeText(text);
+      return text;
+    }
+
+    function rememberRunEvent(type, details = {}) {
+      recentRunEvents = recentRunEvents.concat({
+        type,
+        at: new Date().toISOString(),
+        ...details,
+      }).slice(-12);
+    }
+
+    function currentErrorSummary() {
+      const skipped = latestResults
+        .filter((item) => item && (item.status === "skipped" || item.error))
+        .slice(-3)
+        .map((item) => `${item.carrier || "Carrier"}: ${item.error || item.status || "No usable quote"}`);
+      return {
+        statusText: (statusEl.textContent || "").trim(),
+        assistantStatusText: (assistantStatusEl.textContent || "").trim(),
+        skipped,
+      };
+    }
+
+    function buildTroubleshootPrompt() {
+      const summary = currentErrorSummary();
+      const parts = [
+        "Please troubleshoot the current issue on this page.",
+        "Use this structure: likely cause, what to check now, and whether to escalate.",
+      ];
+      if (summary.statusText) {
+        parts.push(`Visible status: ${summary.statusText}`);
+      }
+      if (summary.assistantStatusText) {
+        parts.push(`Assistant status: ${summary.assistantStatusText}`);
+      }
+      if (summary.skipped.length) {
+        parts.push(`Carrier issues: ${summary.skipped.join(" | ")}`);
+      }
+      if (!summary.statusText && !summary.assistantStatusText && !summary.skipped.length) {
+        parts.push("There is no explicit error shown yet. Review the current page state and tell me what could block the next quote run.");
+      }
+      return parts.join("\n");
+    }
+
+    function renderAssistantMessages() {
+      assistantMessagesEl.innerHTML = assistantHistory.map((item) => `
+        <div class="assistant-bubble ${escapeHtml(item.role)}">
+          <div class="assistant-role">${item.role === "user" ? "You" : "Assistant"}</div>
+          <div class="assistant-text">${escapeHtml(item.text)}</div>
+          ${item.meta ? `<div class="assistant-meta">${escapeHtml(item.meta)}</div>` : ""}
+        </div>
+      `).join("");
+      assistantMessagesEl.scrollTop = assistantMessagesEl.scrollHeight;
+    }
+
+    async function postAssistantMessage(messageText) {
+      const payload = new FormData();
+      payload.append("message", messageText);
+      payload.append("history", JSON.stringify(assistantHistory.slice(0, -1).slice(-8).map(({ role, text }) => ({ role, text }))));
+      payload.append("context", JSON.stringify(assistantContextPayload()));
+      if (assistantScreenshotEl.files[0]) {
+        payload.append("screenshot", assistantScreenshotEl.files[0]);
+      }
+
+      const response = await fetch("/api/assistant", {
+        method: "POST",
+        body: payload,
+      });
+
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        data = { detail: "Invalid server response" };
+      }
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Assistant request failed");
+      }
+      return data;
+    }
+
     function showResult(data) {
       resultEl.classList.add("show");
       document.getElementById("batch-id").textContent = data.batch_id || "-";
@@ -1198,6 +2320,13 @@
         wrapper.className = "result-item";
         const brokerQuotes = Array.isArray(item.broker_quotes) ? item.broker_quotes : [];
         const bestBrokerQuote = cheapestBrokerQuote(item);
+        const skipMessage = (() => {
+          const raw = String(item.error || "Carrier did not return a usable quote for this destination.").trim();
+          if ((item.carrier || "").toUpperCase() === "SCHNEIDER" && /declined this shipment in freightpower/i.test(raw)) {
+            return "Schneider/FreightPower declined this shipment for the current account or lane. No Schneider quote is available for this request.";
+          }
+          return raw;
+        })();
         wrapper.innerHTML = `
           <div class="result-head">
             <h3>${item.carrier || "-"}</h3>
@@ -1223,7 +2352,7 @@
           ` : ""}
           ${isSkipped ? `
             <div class="result-skip">
-              Skipped: ${item.error || "Carrier did not return a usable quote for this destination."}
+              Skipped: ${skipMessage}
             </div>
           ` : ""}
           ${(debug.cn_total || debug.us_total) ? `
@@ -1251,9 +2380,13 @@
       }
     }
 
-    function applyFormDefaults(defaults) {
+    function applyFormDefaults(defaults, options = {}) {
       if (!defaults) return;
+      const { resetShipmentDateToToday = false } = options;
       Object.entries(defaults).forEach(([key, value]) => {
+        if (resetShipmentDateToToday && key === "shipment_date") {
+          return;
+        }
         const el = form.elements.namedItem(key);
         if (el) {
           el.value = value ?? "";
@@ -1275,7 +2408,77 @@
       } else {
         renderPalletEditor();
       }
+      if (resetShipmentDateToToday) {
+        document.getElementById("shipment_date").value = todayIso();
+      }
       updateClassEstimate();
+    }
+
+    function selectedQuoteTarget() {
+      return String(quoteTargetEl.value || "ALL");
+    }
+
+    function selectedQuoteTargetLabel() {
+      const selected = selectedQuoteTarget();
+      const match = quoteTargets.find((item) => String(item.value || "") === selected);
+      return match?.label || "All Carriers + Brokers";
+    }
+
+    function syncQuoteTargetLabel() {
+      quoteTargetLabelEl.textContent = selectedQuoteTargetLabel();
+    }
+
+    function hideQuoteTargetDropdown() {
+      quoteTargetPickerEl.classList.remove("open");
+      quoteTargetDropdownEl.classList.remove("show");
+      quoteTargetTriggerEl.setAttribute("aria-expanded", "false");
+    }
+
+    function showQuoteTargetDropdown() {
+      quoteTargetPickerEl.classList.add("open");
+      quoteTargetDropdownEl.classList.add("show");
+      quoteTargetTriggerEl.setAttribute("aria-expanded", "true");
+    }
+
+    function setQuoteTarget(value) {
+      const allowedValues = new Set(quoteTargets.map((item) => String(item.value || "")));
+      quoteTargetEl.value = allowedValues.has(String(value || "")) ? String(value || "") : "ALL";
+      syncQuoteTargetLabel();
+      renderQuoteTargetOptions(quoteTargets);
+    }
+
+    function renderQuoteTargetOptions(targets = []) {
+      const selected = selectedQuoteTarget();
+      const normalized = Array.isArray(targets) && targets.length
+        ? targets
+        : [{ value: "ALL", label: "All Carriers + Brokers" }];
+      quoteTargets = normalized;
+      quoteTargetDropdownEl.innerHTML = normalized.map((item) => {
+        const value = String(item.value || "ALL");
+        const isActive = value === selected;
+        const label = item.label || item.value || "All Carriers + Brokers";
+        return `
+          <button
+            type="button"
+            class="target-option${isActive ? " active" : ""}"
+            data-value="${escapeHtml(value)}"
+            role="option"
+            aria-selected="${isActive ? "true" : "false"}"
+          >
+            <span>${escapeHtml(label)}</span>
+            <span class="target-option-mark" aria-hidden="true">✓</span>
+          </button>
+        `;
+      }).join("");
+      const allowedValues = new Set(normalized.map((item) => String(item.value || "")));
+      quoteTargetEl.value = allowedValues.has(selected) ? selected : "ALL";
+      syncQuoteTargetLabel();
+      quoteTargetDropdownEl.querySelectorAll(".target-option").forEach((option) => {
+        option.addEventListener("click", () => {
+          setQuoteTarget(option.dataset.value || "ALL");
+          hideQuoteTargetDropdown();
+        });
+      });
     }
 
     async function postJson(url, payload) {
@@ -1312,8 +2515,9 @@
       return data;
     }
 
-    async function runStream(payload) {
+    async function runStream(payload, runContext = null) {
       currentAbortController = new AbortController();
+      const context = runContext || prepareRunContext(payload);
       const response = await fetch("/api/run-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1344,24 +2548,33 @@
         for (const line of lines) {
           if (!line.trim()) continue;
           const event = JSON.parse(line);
+          if (event.type === "started") {
+            recentRunEvents = [];
+          }
+          rememberRunEvent(event.type, {
+            message: event.message || "",
+            batch_id: event.batch_id || "",
+            carrier: event.result?.carrier || "",
+          });
           if (event.type === "status") {
             setStatus(event.message, "");
           } else if (event.type === "started") {
             currentRunId = event.run_id || "";
-            latestResults = [];
-            showResult({ batch_id: event.batch_id, results: latestResults });
+            latestBatchId = event.batch_id || latestBatchId;
+            if (!context.appendMode) {
+              applyResultState([], event.batch_id, { appendMode: false });
+            } else {
+              showResult({ batch_id: latestBatchId, results: latestResults });
+            }
           } else if (event.type === "result") {
-            latestResults = event.results || [];
-            showResult({ batch_id: event.batch_id, results: latestResults });
+            applyResultState(event.results || [], event.batch_id, { appendMode: context.appendMode });
             setStatus(`Quoted ${event.result?.carrier || "carrier"}. Waiting for the next carrier...`, "");
           } else if (event.type === "stopped") {
-            latestResults = event.results || [];
-            showResult({ batch_id: event.batch_id, results: latestResults });
+            applyResultState(event.results || [], event.batch_id, { appendMode: context.appendMode });
             setStatus(event.message || "Run stopped.", "err");
             currentRunId = "";
           } else if (event.type === "complete") {
-            latestResults = event.results || [];
-            showResult({ batch_id: event.batch_id, results: latestResults });
+            applyResultState(event.results || [], event.batch_id, { appendMode: context.appendMode });
             applyFormDefaults(event.reset_form);
             await loadProfiles();
             updateProfileSummary(profileSelectEl.value || profileNameEl.value || "");
@@ -1420,6 +2633,170 @@
         refreshProfileDropdown();
       } catch {}
     }
+
+    async function loadNetworkInfo() {
+      try {
+        const response = await fetch("/api/network-info");
+        const data = await response.json();
+        if (!data || !data.ok) return;
+        renderQuoteTargetOptions(data.quote_targets || []);
+
+        const urls = [];
+        const currentOrigin = String(window.location.origin || "");
+        const currentHost = String(window.location.hostname || "");
+        const lanUrls = Array.isArray(data.lan_urls) ? data.lan_urls : [];
+
+        if (currentHost && currentHost !== "127.0.0.1" && currentHost !== "localhost") {
+          urls.push(currentOrigin);
+        }
+
+        for (const url of lanUrls) {
+          if (url && !urls.includes(url)) {
+            urls.push(url);
+          }
+        }
+
+        if (data.hostname_url && !urls.includes(data.hostname_url)) {
+          urls.push(data.hostname_url);
+        }
+
+        if (!urls.length) return;
+
+        shareLinksEl.innerHTML = urls.slice(0, 2).map((url) => (
+          `<a class="share-link" href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(url)}</a>`
+        )).join("");
+        shareBannerEl.classList.remove("hidden");
+      } catch {}
+    }
+
+    assistantLauncherEl.addEventListener("click", () => {
+      setAssistantOpen(!assistantOpen);
+    });
+
+    assistantHelpToggleEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setAssistantHelpOpen(!assistantHelpOpen);
+    });
+
+    assistantCloseEl.addEventListener("click", () => {
+      setAssistantOpen(false);
+    });
+
+    assistantBackdropEl.addEventListener("click", () => {
+      setAssistantOpen(false);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && assistantOpen) {
+        if (assistantHelpOpen) {
+          setAssistantHelpOpen(false);
+          return;
+        }
+        setAssistantOpen(false);
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (assistantHelpOpen && !event.target.closest("#assistant-help")) {
+        setAssistantHelpOpen(false);
+      }
+    });
+
+    assistantScreenshotEl.addEventListener("change", () => {
+      const file = assistantScreenshotEl.files[0];
+      assistantFileEl.textContent = file ? `Attached: ${file.name}` : "No screenshot attached.";
+    });
+
+    assistantInputEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey) {
+        return;
+      }
+      event.preventDefault();
+      if (!assistantSendEl.disabled) {
+        assistantFormEl.requestSubmit();
+      }
+    });
+
+    assistantClearEl.addEventListener("click", () => {
+      lastAssistantModel = "";
+      lastAssistantError = "";
+      assistantHistory = [
+        {
+          role: "assistant",
+          text: "I can help you use this page, explain quote issues, inspect screenshots, and prepare diagnostics for the developer if something breaks.",
+          meta: "Uses current form, status, and result context",
+        },
+      ];
+      assistantInputEl.value = "";
+      assistantScreenshotEl.value = "";
+      assistantFileEl.textContent = "No screenshot attached.";
+      setAssistantStatus("", "");
+      renderAssistantMessages();
+    });
+
+    assistantTroubleshootEl.addEventListener("click", () => {
+      assistantInputEl.value = buildTroubleshootPrompt();
+      setAssistantStatus("Troubleshooting prompt prepared. Click Ask Assistant to run it.", "ok");
+      assistantInputEl.focus();
+    });
+
+    assistantDiagnosticsEl.addEventListener("click", async () => {
+      try {
+        await copyAssistantDiagnostics();
+        setAssistantStatus("Diagnostics copied. Paste them into the Codex developer chat if you need escalation.", "ok");
+      } catch (err) {
+        setAssistantStatus(`Could not copy diagnostics. ${String(err)}`, "err");
+      }
+    });
+
+    assistantFormEl.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const userText = (assistantInputEl.value || "").trim();
+      const screenshotFile = assistantScreenshotEl.files[0];
+      if (!userText && !screenshotFile) {
+        setAssistantStatus("Enter a message or attach a screenshot first.", "err");
+        return;
+      }
+
+      assistantSendEl.disabled = true;
+      assistantClearEl.disabled = true;
+      setAssistantStatus("Asking the assistant...", "");
+
+      assistantHistory.push({
+        role: "user",
+        text: userText || "Please inspect the attached screenshot.",
+        meta: screenshotFile ? `Screenshot: ${screenshotFile.name}` : "",
+      });
+      assistantInputEl.value = "";
+      renderAssistantMessages();
+
+      try {
+        const data = await postAssistantMessage(userText);
+        lastAssistantModel = data.model || "";
+        lastAssistantError = "";
+        assistantHistory.push({
+          role: "assistant",
+          text: data.answer || "No reply returned.",
+          meta: data.model ? `Model: ${data.model}` : "",
+        });
+        assistantScreenshotEl.value = "";
+        assistantFileEl.textContent = "No screenshot attached.";
+        setAssistantStatus("Assistant reply ready.", "ok");
+        renderAssistantMessages();
+      } catch (err) {
+        lastAssistantError = String(err);
+        assistantHistory.push({
+          role: "assistant",
+          text: `I could not answer that request. ${String(err)}`,
+          meta: "Backend assistant error",
+        });
+        setAssistantStatus(String(err), "err");
+        renderAssistantMessages();
+      } finally {
+        assistantSendEl.disabled = false;
+        assistantClearEl.disabled = false;
+      }
+    });
 
     saveBtn.addEventListener("click", async () => {
       setRunningState(true);
@@ -1488,7 +2865,7 @@
       const selected = (profileSelectEl.value || "").trim();
       if (!selected || !profiles[selected]) return;
       profileNameEl.value = selected;
-      applyFormDefaults(profileRecordData(profiles[selected]));
+      applyFormDefaults(profileRecordData(profiles[selected]), { resetShipmentDateToToday: true });
       updateProfileSummary(selected);
       refreshProfileDropdown(selected);
     }
@@ -1505,9 +2882,20 @@
         updateProfileSummary("");
       }
     });
+    quoteTargetTriggerEl.addEventListener("click", () => {
+      if (quoteTargetTriggerEl.disabled) return;
+      if (quoteTargetDropdownEl.classList.contains("show")) {
+        hideQuoteTargetDropdown();
+      } else {
+        showQuoteTargetDropdown();
+      }
+    });
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".company-picker")) {
         hideProfileDropdown();
+      }
+      if (!event.target.closest(".run-target-picker")) {
+        hideQuoteTargetDropdown();
       }
     });
 
@@ -1524,11 +2912,20 @@
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      const payload = formPayload();
+      const runContext = prepareRunContext(payload);
       setRunningState(true);
-      setStatus("Running carriers. Results will appear one by one as each quote finishes...", "");
+      setStatus(
+        runContext.appendMode
+          ? "Running selected target. Matching results will be added to the current load."
+          : "Running carriers. Results will appear one by one as each quote finishes...",
+        "",
+      );
       try {
-        latestResults = [];
-        await runStream(formPayload());
+        if (!runContext.appendMode) {
+          showResult({ batch_id: latestBatchId, results: latestResults });
+        }
+        await runStream(payload, runContext);
       } catch (err) {
         if (String(err).includes("AbortError")) {
           setStatus("Run stopped from the page.", "err");
@@ -1537,6 +2934,7 @@
         }
       } finally {
         currentAbortController = null;
+        pendingRunContext = null;
         setRunningState(false);
       }
     });
@@ -1555,8 +2953,10 @@
     });
 
     loadProfiles();
+    loadNetworkInfo();
     renderPalletEditor();
     updateClassEstimate();
+    renderAssistantMessages();
   </script>
 </body>
 </html>

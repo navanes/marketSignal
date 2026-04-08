@@ -2,6 +2,7 @@ import argparse
 import math
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -105,6 +106,7 @@ def quote_line_items(data: dict):
         "length": integer_string(data.get("length"), round_up=True),
         "width": integer_string(data.get("width"), round_up=True),
         "height": integer_string(data.get("height"), round_up=True),
+        "commodity_description": str(data.get("commodity_description") or "Sheet Metal Parts").strip() or "Sheet Metal Parts",
         "freight_class": str(data.get("freight_class") or "").strip(),
         "pieces": integer_string(data.get("pieces") or "1") or "1",
         "weight": integer_string(data.get("weight"), round_up=True),
@@ -171,8 +173,10 @@ def goto_ltl_quote(page):
         )
 
     attempts = [
-        ("sidebar LTL Quote", lambda: page.get_by_role("link", name="LTL Quote").click(timeout=5000)),
+        ("sidebar LTL Quote", lambda: page.locator("[data-testid='sidenav-quote-link']").first.click(timeout=5000)),
+        ("sidebar LTL Quote text", lambda: page.get_by_role("link", name="LTL Quote").click(timeout=5000)),
         ("dashboard Start a Quote", lambda: page.get_by_role("button", name="Start a Quote").click(timeout=5000)),
+        ("direct /customers/quote", lambda: page.goto("https://mycarriertms.com/customers/quote", wait_until="domcontentloaded", timeout=120000)),
         ("direct /ui/customer/quote", lambda: page.goto("https://mycarriertms.com/ui/customer/quote", wait_until="domcontentloaded", timeout=120000)),
     ]
 
@@ -208,6 +212,117 @@ def ensure_origin_defaults_match(page, origin_zip: str):
     text = normalize_space(origin_block.inner_text())
     if origin_zip and origin_zip not in text:
         print(f"MyCarrier origin block did not show ZIP {origin_zip}; keeping default ship-from selection.", flush=True)
+
+
+def mycarrier_pickup_date(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%m/%d/%Y")
+        except ValueError:
+            continue
+
+    match = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw)
+    if match:
+        month, day, year = match.groups()
+        return f"{int(month):02d}/{int(day):02d}/{year}"
+
+    return raw
+
+
+def fill_pickup_date(page, shipment_date):
+    pickup_date = mycarrier_pickup_date(shipment_date)
+    if not pickup_date:
+        print("MyCarrier pickup date missing; leaving page default.", flush=True)
+        return
+
+    def dismiss_datepicker():
+        selectors = [
+            "button:has-text('TODAY')",
+            ".mat-datepicker-content",
+            ".mat-calendar",
+            "mat-datepicker-content",
+        ]
+        for _ in range(3):
+            visible = False
+            for selector in selectors:
+                try:
+                    locator = page.locator(selector).first
+                    if locator.count() > 0 and locator.is_visible():
+                        visible = True
+                        break
+                except Exception:
+                    pass
+            if not visible:
+                return
+            try:
+                page.keyboard.press("Escape")
+            except Exception:
+                pass
+            page.mouse.click(20, 20)
+            wait_after_step(page)
+
+    print(f"MyCarrier pickup date -> {pickup_date}", flush=True)
+    date_candidates = [
+        page.get_by_label("Pick up on", exact=True).first,
+        page.locator("input[data-placeholder='Pick up on']").first,
+        page.locator("input[placeholder='Pick up on']").first,
+        page.locator("mat-form-field:has-text('Pick up on') input").first,
+    ]
+
+    for locator in date_candidates:
+        try:
+            if locator.count() == 0:
+                continue
+            set_input_value(locator, pickup_date)
+            wait_after_step(page, 2)
+            dismiss_datepicker()
+            value = normalize_space(locator.input_value())
+            if value == pickup_date:
+                print("MyCarrier pickup date filled.", flush=True)
+                return
+        except Exception:
+            pass
+
+    applied = page.evaluate(
+        """
+        (targetDate) => {
+            const labels = Array.from(document.querySelectorAll('label, .mat-form-field-label, mat-label, span'));
+            const label = labels.find((node) => (node.textContent || '').trim() === 'Pick up on');
+            if (!label) return false;
+
+            let current = label;
+            while (current) {
+                const scope = current.parentElement || current.closest('mat-form-field') || current.closest('div');
+                const input = scope ? scope.querySelector('input') : null;
+                if (input) {
+                    input.focus();
+                    input.value = '';
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.value = targetDate;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.blur();
+                    return true;
+                }
+                current = current.parentElement;
+            }
+            return false;
+        }
+        """,
+        pickup_date,
+    )
+    wait_after_step(page, 2)
+    dismiss_datepicker()
+    if applied:
+        print("MyCarrier pickup date filled via DOM fallback.", flush=True)
+        return
+
+    page.screenshot(path="mycarrier_pickup_date_missing.png", full_page=True)
+    raise RuntimeError("Could not find MyCarrier pickup date input. Saved mycarrier_pickup_date_missing.png")
 
 
 def fill_origin(page, origin_zip: str):
@@ -348,11 +463,18 @@ def fill_shipment_items(page, data: dict):
         length_input = row.locator("[formcontrolname='length'] input, input[formcontrolname='length']").first
         width_input = row.locator("[formcontrolname='width'] input, input[formcontrolname='width']").first
         height_input = row.locator("[formcontrolname='height'] input, input[formcontrolname='height']").first
+        description_input = row.get_by_label("Commodity Description", exact=True).first
+        if description_input.count() == 0:
+            description_input = row.locator("input[data-placeholder='Commodity Description'], input[placeholder='Commodity Description']").first
+        if description_input.count() == 0:
+            description_input = row.locator("mat-form-field:has-text('Commodity Description') input").first
+        if description_input.count() == 0:
+            description_input = row.locator("input[id^='list-search-']").first
         pieces_input = row.locator("[formcontrolname='commodityTotalPieces'] input, input[formcontrolname='commodityTotalPieces']").first
         weight_input = row.locator("[formcontrolname='commodityTotalWeight'] input, input[formcontrolname='commodityTotalWeight']").first
         class_input = row.locator("input[id^='list-search-']").last
 
-        required = [count_input, length_input, width_input, height_input, pieces_input, weight_input, class_input]
+        required = [count_input, length_input, width_input, height_input, description_input, pieces_input, weight_input, class_input]
         for locator in required:
             if locator.count() == 0:
                 page.screenshot(path="mycarrier_shipment_inputs_missing.png", full_page=True)
@@ -362,9 +484,11 @@ def fill_shipment_items(page, data: dict):
         set_input_value(length_input, item["length"])
         set_input_value(width_input, item["width"])
         set_input_value(height_input, item["height"])
+        set_input_value(description_input, item["commodity_description"])
         set_input_value(pieces_input, item["pieces"])
         set_input_value(weight_input, item["weight"])
         print("MyCarrier shipment numeric fields filled.", flush=True)
+        print(f"MyCarrier commodity description -> {item['commodity_description']}", flush=True)
 
         set_input_value(class_input, item["freight_class"])
         wait_after_step(page, 2)
@@ -540,6 +664,21 @@ def scrape_results(page):
     print("MYCARRIER RESULTS PAGE TEXT:", flush=True)
     print(body_text[:6000], flush=True)
 
+    def locator_text(locator) -> str:
+        try:
+            if locator.count() == 0:
+                return ""
+        except Exception:
+            return ""
+
+        for reader in (locator.text_content, locator.inner_text):
+            try:
+                value = reader(timeout=1500)
+                return normalize_space(value or "")
+            except Exception:
+                pass
+        return ""
+
     results = []
     service_labels = ["STANDARD", "GUARANTEED AM", "GUARANTEED PM"]
     delivery_days = page.locator("cup-delivery-day")
@@ -564,12 +703,22 @@ def scrape_results(page):
             cards = group.locator("cup-carrier-rate")
             for card_idx in range(cards.count()):
                 card = cards.nth(card_idx)
-                carrier = normalize_space(card.locator("img[alt]").first.get_attribute("alt") or "")
+                try:
+                    carrier = normalize_space(card.locator("img[alt]").first.get_attribute("alt") or "")
+                except Exception:
+                    carrier = ""
                 if not carrier:
                     continue
-                price_text = normalize_space(card.locator(".item-pkg-amt-value-hover").first.inner_text())
-                time_text = normalize_space(card.locator(".item-pkg-time-wrap").first.inner_text())
+                price_text = locator_text(card.locator(".item-pkg-amt-value-hover").first)
+                time_text = locator_text(card.locator(".item-pkg-time-wrap").first)
                 price_match = re.search(r"\$([0-9,]+\.[0-9]{2})", price_text)
+                if not price_match:
+                    debug_text = locator_text(card)
+                    print(
+                        f"MyCarrier skipping incomplete result card for {carrier!r} in {service_level}: {debug_text[:200]!r}",
+                        flush=True,
+                    )
+                    continue
                 results.append(
                     {
                         "carrier": carrier,
@@ -595,6 +744,7 @@ def quote_mycarrier(data: dict, *, headless: bool = True, slow_mo: int = 0, keep
         try:
             do_login(page, username, password)
             goto_ltl_quote(page)
+            fill_pickup_date(page, data.get("shipment_date"))
             ensure_origin_defaults_match(page, str(data.get("origin_zip") or "").strip())
             fill_origin(page, str(data.get("origin_zip") or "").strip())
             fill_destination(page, str(data.get("dest_zip") or "").strip())
