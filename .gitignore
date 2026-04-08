@@ -23,4 +23,21 @@ tforce_*.png
 mycarrier_*.png
 *_failed.png
 *_missing.png
-webapp/  static/
+
+# Local quote debug artifacts
+after_submit.png
+before_submit.png
+results_detected.png
+*_before_submit.png
+*_after_submit.png
+*_results*.png
+*_results*.html
+*_service_error.png
+*_form_snapshot.html
+*_datepicker_open.html
+*_datepicker_open.png
+*_quote_probe.html
+*_debug_*.html
+*_debug_*.png
+*_typing_failed.html
+*_line_value_commit_failed.html
