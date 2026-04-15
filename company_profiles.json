@@ -21,7 +21,7 @@
       "price": 99.54,
       "transit_days": 1,
       "source": "",
-      "quoted_at": "2026-03-19",
+      "quoted_at": "2026-03-30",
       "origin_zip": "91342",
       "destination_zip": "92807",
       "origin_city": "SYLMAR, CA",
@@ -33,30 +33,6 @@
       "height": "45",
       "weight": "1470",
       "freight_class": "65"
-    }
-  },
-  "Acco": {
-    "data": {
-      "order_number": "",
-      "origin_zip": "91342",
-      "destination_zip": "94577",
-      "pallet_count": 1,
-      "length_in": 50.0,
-      "width_in": 42.0,
-      "height_in": 19.0,
-      "weight_lb": 750.0,
-      "pieces": 12,
-      "freight_class": "60",
-      "pickup_city": "SYLMAR, CA",
-      "delivery_city": "San Leandro",
-      "shipment_date": "2026-03-12",
-      "pallet_items": []
-    },
-    "last_quote_summary": {
-      "carrier": "MYCARRIER",
-      "price": 147.67,
-      "transit_days": 2,
-      "quoted_at": "2026-03-19"
     }
   },
   "Omni Duct - AZ": {
@@ -117,10 +93,22 @@
       ]
     },
     "last_quote_summary": {
-      "carrier": "CENTRAL TRANSPORTATION",
-      "price": 398.43,
+      "carrier": "Central Transport",
+      "price": 404.26,
       "transit_days": 2,
-      "quoted_at": "2026-03-16"
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-24",
+      "origin_zip": "91342",
+      "destination_zip": "84116",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "SALT LAKE CITY",
+      "pallets": "2",
+      "pieces": "128",
+      "length": "50",
+      "width": "50",
+      "height": "63",
+      "weight": "4300",
+      "freight_class": "65"
     }
   },
   "Spiral Fitting": {
@@ -150,7 +138,7 @@
   },
   "Acosta": {
     "data": {
-      "company_name": "Spiral Fitting",
+      "company_name": "Acosta",
       "order_number": "",
       "origin_zip": "91342",
       "destination_zip": "95122",
@@ -163,14 +151,46 @@
       "freight_class": "65",
       "pickup_city": "SYLMAR, CA",
       "delivery_city": "San Jose",
-      "shipment_date": "2026-03-18",
+      "shipment_date": "2026-04-14",
       "pallet_items": []
     },
     "last_quote_summary": {
       "carrier": "NUMARK",
       "price": 328.5,
       "transit_days": 1,
-      "quoted_at": "2026-03-18"
+      "source": "",
+      "top_quotes": [
+        {
+          "carrier": "NUMARK",
+          "price": 328.5,
+          "transit_days": 1,
+          "source": ""
+        },
+        {
+          "carrier": "TForce Freight",
+          "price": 344.25,
+          "transit_days": 1,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "Central Transport",
+          "price": 361.15,
+          "transit_days": 2,
+          "source": "MYCARRIER"
+        }
+      ],
+      "quoted_at": "2026-04-14",
+      "origin_zip": "91342",
+      "destination_zip": "95122",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "San Jose",
+      "pallets": "1",
+      "pieces": "57",
+      "length": "53",
+      "width": "53",
+      "height": "57",
+      "weight": "2660",
+      "freight_class": "65"
     }
   },
   "American Inc": {
@@ -211,10 +231,22 @@
       ]
     },
     "last_quote_summary": {
-      "carrier": "MYCARRIER",
-      "price": 248.28,
+      "carrier": "ESTES EXPRESS LINES",
+      "price": 237.57,
       "transit_days": 1,
-      "quoted_at": "2026-03-18"
+      "source": "SCHNEIDER",
+      "quoted_at": "2026-03-31",
+      "origin_zip": "91342",
+      "destination_zip": "93291",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Visalia",
+      "pallets": "2",
+      "pieces": "178",
+      "length": "52",
+      "width": "48",
+      "height": "59",
+      "weight": "900",
+      "freight_class": "175"
     }
   },
   "Omni Duct - Sac": {
@@ -224,41 +256,53 @@
       "origin_zip": "91342",
       "destination_zip": "95691",
       "pallet_count": 2,
-      "length_in": 49.0,
-      "width_in": 44.0,
-      "height_in": 21.0,
-      "weight_lb": 1430.0,
-      "pieces": 248,
-      "freight_class": "85",
+      "length_in": 48.0,
+      "width_in": 46.0,
+      "height_in": 94.0,
+      "weight_lb": 1700.0,
+      "pieces": 2,
+      "freight_class": "125",
       "pickup_city": "SYLMAR, CA",
       "delivery_city": "Sacramento",
-      "shipment_date": "2026-03-18",
+      "shipment_date": "2026-04-09",
       "pallet_items": [
         {
           "pallet_number": 1,
-          "pieces": 8,
-          "length_in": 49.0,
-          "width_in": 44.0,
-          "height_in": 21.0,
-          "weight_lb": 580.0,
-          "freight_class": "70"
+          "pieces": 1,
+          "length_in": 48.0,
+          "width_in": 46.0,
+          "height_in": 94.0,
+          "weight_lb": 850.0,
+          "freight_class": "125"
         },
         {
           "pallet_number": 2,
-          "pieces": 240,
-          "length_in": 50.0,
-          "width_in": 43.0,
-          "height_in": 73.0,
+          "pieces": 1,
+          "length_in": 48.0,
+          "width_in": 46.0,
+          "height_in": 94.0,
           "weight_lb": 850.0,
-          "freight_class": "100"
+          "freight_class": "125"
         }
       ]
     },
     "last_quote_summary": {
       "carrier": "NUMARK",
-      "price": 169.5,
+      "price": 328.5,
       "transit_days": 1,
-      "quoted_at": "2026-03-18"
+      "source": "",
+      "quoted_at": "2026-04-09",
+      "origin_zip": "91342",
+      "destination_zip": "95691",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Sacramento",
+      "pallets": "2",
+      "pieces": "2",
+      "length": "48",
+      "width": "46",
+      "height": "94",
+      "weight": "1700",
+      "freight_class": "125"
     }
   },
   "TRU-DUCT": {
@@ -276,14 +320,26 @@
       "freight_class": "85",
       "pickup_city": "SYLMAR, CA",
       "delivery_city": "OCEANSIDE CA",
-      "shipment_date": "2026-03-18",
+      "shipment_date": "2026-04-09",
       "pallet_items": []
     },
     "last_quote_summary": {
-      "carrier": "NUMARK",
-      "price": 112.26,
+      "carrier": "Central Transport",
+      "price": 122.82,
       "transit_days": 1,
-      "quoted_at": "2026-03-18"
+      "source": "MYCARRIER",
+      "quoted_at": "2026-04-09",
+      "origin_zip": "91342",
+      "destination_zip": "92054",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "OCEANSIDE CA",
+      "pallets": "1",
+      "pieces": "4",
+      "length": "48",
+      "width": "42",
+      "height": "20",
+      "weight": "300",
+      "freight_class": "85"
     }
   },
   "AIR-DUCT CORONA": {
@@ -301,15 +357,15 @@
       "freight_class": "85",
       "pickup_city": "SYLMAR, CA",
       "delivery_city": "CORONA",
-      "shipment_date": "2026-03-18",
+      "shipment_date": "2026-04-08",
       "pallet_items": []
     },
     "last_quote_summary": {
-      "carrier": "TOTAL",
-      "price": 98.32,
+      "carrier": "Central Transport",
+      "price": 122.82,
       "transit_days": 1,
-      "source": "",
-      "quoted_at": "2026-03-19",
+      "source": "MYCARRIER",
+      "quoted_at": "2026-04-08",
       "origin_zip": "91342",
       "destination_zip": "92879",
       "origin_city": "SYLMAR, CA",
@@ -338,14 +394,26 @@
       "freight_class": "65",
       "pickup_city": "SYLMAR, CA",
       "delivery_city": "Anaheim",
-      "shipment_date": "2026-03-18",
+      "shipment_date": "2026-04-09",
       "pallet_items": []
     },
     "last_quote_summary": {
       "carrier": "TOTAL",
-      "price": 98.32,
+      "price": 102.28,
       "transit_days": 1,
-      "quoted_at": "2026-03-18"
+      "source": "",
+      "quoted_at": "2026-04-09",
+      "origin_zip": "91342",
+      "destination_zip": "92806",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Anaheim",
+      "pallets": "1",
+      "pieces": "30",
+      "length": "48",
+      "width": "42",
+      "height": "30",
+      "weight": "1000",
+      "freight_class": "65"
     }
   },
   "Hercules Denver, CO": {
@@ -388,15 +456,35 @@
       "freight_class": "65",
       "pickup_city": "SYLMAR, CA",
       "delivery_city": "Minneapolis, MN",
-      "shipment_date": "2026-03-19",
+      "shipment_date": "2026-04-14",
       "pallet_items": []
     },
     "last_quote_summary": {
       "carrier": "XPO LTL",
-      "price": 395.67,
+      "price": 415.04,
       "transit_days": 4,
       "source": "MYCARRIER",
-      "quoted_at": "2026-03-19",
+      "top_quotes": [
+        {
+          "carrier": "XPO LTL",
+          "price": 415.04,
+          "transit_days": 4,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "TForce Freight",
+          "price": 423.52,
+          "transit_days": 5,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "Estes Express",
+          "price": 444.14,
+          "transit_days": 4,
+          "source": "MYCARRIER"
+        }
+      ],
+      "quoted_at": "2026-04-14",
       "origin_zip": "91342",
       "destination_zip": "55432",
       "origin_city": "SYLMAR, CA",
@@ -407,6 +495,838 @@
       "width": "50",
       "height": "44",
       "weight": "1730",
+      "freight_class": "65"
+    }
+  },
+  "Kolsten": {
+    "data": {
+      "company_name": "Kolsten",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "85233",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 19.0,
+      "weight_lb": 450.0,
+      "pieces": 9,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Gilbert, AZ",
+      "shipment_date": "2026-03-18",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 134.37,
+      "transit_days": 2,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-20",
+      "origin_zip": "91342",
+      "destination_zip": "85233",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Gilbert, AZ",
+      "pallets": "1",
+      "pieces": "9",
+      "length": "48",
+      "width": "42",
+      "height": "19",
+      "weight": "450",
+      "freight_class": "70"
+    }
+  },
+  "Titan Metal AZ": {
+    "data": {
+      "company_name": "Titan Metal AZ",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "85027",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 18.0,
+      "weight_lb": 365.0,
+      "pieces": 8,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Phoenix AZ",
+      "shipment_date": "2026-03-23",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 136.89,
+      "transit_days": 3,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-31",
+      "origin_zip": "91342",
+      "destination_zip": "85027",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Phoenix AZ",
+      "pallets": "1",
+      "pieces": "8",
+      "length": "48",
+      "width": "42",
+      "height": "18",
+      "weight": "365",
+      "freight_class": "70"
+    }
+  },
+  "Acco San Leandro": {
+    "data": {
+      "company_name": "Acco San Leandro",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "94577",
+      "pallet_count": 1,
+      "length_in": 49.0,
+      "width_in": 42.0,
+      "height_in": 19.0,
+      "weight_lb": 650.0,
+      "pieces": 11,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "San Leandro",
+      "shipment_date": "2026-04-15",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 142.06,
+      "transit_days": 2,
+      "source": "MYCARRIER",
+      "top_quotes": [
+        {
+          "carrier": "Central Transport",
+          "price": 142.06,
+          "transit_days": 2,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "NUMARK",
+          "price": 169.5,
+          "transit_days": 1,
+          "source": ""
+        },
+        {
+          "carrier": "R + L Carriers",
+          "price": 192.83,
+          "transit_days": 1,
+          "source": "MYCARRIER"
+        }
+      ],
+      "quoted_at": "2026-04-15",
+      "origin_zip": "91342",
+      "destination_zip": "94577",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "San Leandro",
+      "pallets": "1",
+      "pieces": "11",
+      "length": "49",
+      "width": "42",
+      "height": "19",
+      "weight": "650",
+      "freight_class": "65"
+    }
+  },
+  "Acco Colorado Springs": {
+    "data": {
+      "company_name": "Acco CO",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "80919",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 16.0,
+      "weight_lb": 350.0,
+      "pieces": 6,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Colorado Springs, CO",
+      "shipment_date": "2026-03-20",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 343.12,
+      "transit_days": 3,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-27",
+      "origin_zip": "91342",
+      "destination_zip": "80919",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Colorado Springs, CO",
+      "pallets": "1",
+      "pieces": "57",
+      "length": "52",
+      "width": "52",
+      "height": "66",
+      "weight": "2440",
+      "freight_class": "65"
+    }
+  },
+  "Gensco Co.": {
+    "data": {
+      "company_name": "Gensco Co.",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "98424",
+      "pallet_count": 1,
+      "length_in": 50.0,
+      "width_in": 50.0,
+      "height_in": 46.0,
+      "weight_lb": 1810.0,
+      "pieces": 38,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Tacoma WA",
+      "shipment_date": "2026-03-25",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 292.04,
+      "transit_days": 4,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-25",
+      "origin_zip": "91342",
+      "destination_zip": "98424",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Tacoma WA",
+      "pallets": "1",
+      "pieces": "38",
+      "length": "50",
+      "width": "50",
+      "height": "46",
+      "weight": "1810",
+      "freight_class": "65"
+    }
+  },
+  "Atlantic Gasket": {
+    "data": {
+      "company_name": "Atlantic Gasket",
+      "order_number": "19124",
+      "origin_zip": "19124",
+      "destination_zip": "91342",
+      "pallet_count": 1,
+      "length_in": 42.0,
+      "width_in": 42.0,
+      "height_in": 43.0,
+      "weight_lb": 90.0,
+      "pieces": 1,
+      "freight_class": "300",
+      "pickup_city": "Pensilvenia, Ph",
+      "delivery_city": "SYLMAR, CA",
+      "shipment_date": "2026-04-09",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "TFORCE FREIGHT INC",
+      "price": 295.45,
+      "transit_days": 5,
+      "source": "SCHNEIDER",
+      "quoted_at": "2026-04-09",
+      "origin_zip": "19124",
+      "destination_zip": "91342",
+      "origin_city": "Pensilvenia, Ph",
+      "destination_city": "SYLMAR, CA",
+      "pallets": "1",
+      "pieces": "1",
+      "length": "42",
+      "width": "42",
+      "height": "43",
+      "weight": "90",
+      "freight_class": "300"
+    }
+  },
+  "Western Washington": {
+    "data": {},
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 162.83,
+      "transit_days": 5,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-03-27",
+      "origin_zip": "91342",
+      "destination_zip": "98204",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Everett, WA",
+      "pallets": "1",
+      "pieces": "10",
+      "length": "28",
+      "width": "35",
+      "height": "17",
+      "weight": "65",
+      "freight_class": "150"
+    }
+  },
+  "DUCTMATE - PA": {
+    "data": {
+      "company_name": "DUCTMATE - PA",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "15063",
+      "pallet_count": 1,
+      "length_in": 49.0,
+      "width_in": 49.0,
+      "height_in": 53.0,
+      "weight_lb": 1850.0,
+      "pieces": 41,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "MONONGAHELA, PA",
+      "shipment_date": "2026-04-08",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Estes Express",
+      "price": 538.87,
+      "transit_days": 5,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-04-08",
+      "origin_zip": "91342",
+      "destination_zip": "15063",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "MONONGAHELA, PA",
+      "pallets": "1",
+      "pieces": "41",
+      "length": "49",
+      "width": "49",
+      "height": "53",
+      "weight": "1850",
+      "freight_class": "65"
+    }
+  },
+  "DUCTMATE - OK": {
+    "data": {
+      "company_name": "DUCTMATE - OK",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "74467",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 48.0,
+      "height_in": 50.0,
+      "weight_lb": 2020.0,
+      "pieces": 41,
+      "freight_class": "60",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "WAGONER, OK",
+      "shipment_date": "2026-04-14",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Central Transport",
+      "price": 366.76,
+      "transit_days": 4,
+      "source": "MYCARRIER",
+      "top_quotes": [
+        {
+          "carrier": "Central Transport",
+          "price": 366.76,
+          "transit_days": 4,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "TForce Freight",
+          "price": 376.12,
+          "transit_days": 5,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "R + L Carriers",
+          "price": 397.3,
+          "transit_days": 4,
+          "source": "MYCARRIER"
+        }
+      ],
+      "quoted_at": "2026-04-14",
+      "origin_zip": "91342",
+      "destination_zip": "74467",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "WAGONER, OK",
+      "pallets": "1",
+      "pieces": "41",
+      "length": "48",
+      "width": "48",
+      "height": "50",
+      "weight": "2020",
+      "freight_class": "60"
+    }
+  },
+  "AIR DISTRIBUTION CORP": {
+    "data": {
+      "company_name": "AIR DISTRIBUTION CORP",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "02302",
+      "pallet_count": 1,
+      "length_in": 50.0,
+      "width_in": 50.0,
+      "height_in": 34.0,
+      "weight_lb": 1200.0,
+      "pieces": 31,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "BROCKTON",
+      "shipment_date": "2026-04-08",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "TFORCE FREIGHT INC",
+      "price": 494.08,
+      "transit_days": 5,
+      "source": "SCHNEIDER",
+      "quoted_at": "2026-04-08",
+      "origin_zip": "91342",
+      "destination_zip": "02302",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "BROCKTON",
+      "pallets": "1",
+      "pieces": "31",
+      "length": "50",
+      "width": "50",
+      "height": "34",
+      "weight": "1200",
+      "freight_class": "65"
+    }
+  },
+  "PLENUMS  PLUS SHEET METAL": {
+    "data": {
+      "company_name": "PLENUMS  PLUS SHEET METAL",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "91910",
+      "pallet_count": 1,
+      "length_in": 49.0,
+      "width_in": 42.0,
+      "height_in": 30.0,
+      "weight_lb": 700.0,
+      "pieces": 13,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "CHULA VISTA",
+      "shipment_date": "2026-04-15",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 112.26,
+      "transit_days": 1,
+      "source": "",
+      "top_quotes": [
+        {
+          "carrier": "NUMARK",
+          "price": 112.26,
+          "transit_days": 1,
+          "source": ""
+        },
+        {
+          "carrier": "Central Transport",
+          "price": 145.47,
+          "transit_days": 1,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "XPO LTL",
+          "price": 181.38,
+          "transit_days": 1,
+          "source": "MYCARRIER"
+        }
+      ],
+      "quoted_at": "2026-04-15",
+      "origin_zip": "91342",
+      "destination_zip": "91910",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "CHULA VISTA",
+      "pallets": "1",
+      "pieces": "13",
+      "length": "49",
+      "width": "42",
+      "height": "30",
+      "weight": "700",
+      "freight_class": "70"
+    }
+  },
+  "LUKJAN METAL PRODUCTS SOUTH, INC.": {
+    "data": {
+      "company_name": "LUK",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "28086",
+      "pallet_count": 0,
+      "length_in": 0.0,
+      "width_in": 0.0,
+      "height_in": 0.0,
+      "weight_lb": 0.0,
+      "pieces": 0,
+      "freight_class": "",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "KINGS MOUNTAIN",
+      "shipment_date": "2026-04-02",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "XPO LTL",
+      "price": 464.55,
+      "transit_days": 4,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-04-02",
+      "origin_zip": "91342",
+      "destination_zip": "28086",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "KINGS MOUNTAIN",
+      "pallets": "1",
+      "pieces": "38",
+      "length": "51",
+      "width": "51",
+      "height": "47",
+      "weight": "1580",
+      "freight_class": "70"
+    }
+  },
+  "AIR DUCT PRODUCTS": {
+    "data": {
+      "company_name": "AIR DUCT PRODUCTS",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "92879",
+      "pallet_count": 1,
+      "length_in": 50.0,
+      "width_in": 40.0,
+      "height_in": 19.0,
+      "weight_lb": 520.0,
+      "pieces": 12,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "CORONA",
+      "shipment_date": "2026-04-02",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 99.54,
+      "transit_days": 1,
+      "source": "",
+      "quoted_at": "2026-04-02",
+      "origin_zip": "91342",
+      "destination_zip": "92879",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "CORONA",
+      "pallets": "1",
+      "pieces": "12",
+      "length": "50",
+      "width": "40",
+      "height": "19",
+      "weight": "520",
+      "freight_class": "65"
+    }
+  },
+  "WESTERN ALLIED MECHANICAL INC": {
+    "data": {
+      "company_name": "WESTERN ALLIED MECHANICAL",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "94587",
+      "pallet_count": 0,
+      "length_in": 0.0,
+      "width_in": 0.0,
+      "height_in": 0.0,
+      "weight_lb": 0.0,
+      "pieces": 0,
+      "freight_class": "",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "UNION CITY",
+      "shipment_date": "2026-04-03",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 169.5,
+      "transit_days": 1,
+      "source": "",
+      "quoted_at": "2026-04-03",
+      "origin_zip": "91342",
+      "destination_zip": "94587",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "UNION CITY",
+      "pallets": "1",
+      "pieces": "17",
+      "length": "48",
+      "width": "44",
+      "height": "33",
+      "weight": "850",
+      "freight_class": "70"
+    }
+  },
+  "DUX SUPPLY CO": {
+    "data": {
+      "company_name": "DUX SUPPLY CO",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "98665",
+      "pallet_count": 0,
+      "length_in": 0.0,
+      "width_in": 0.0,
+      "height_in": 0.0,
+      "weight_lb": 0.0,
+      "pieces": 0,
+      "freight_class": "",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "VANCOUVER",
+      "shipment_date": "2026-04-08",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "CENTRAL TRANSPORTATION",
+      "price": 302.14,
+      "transit_days": null,
+      "source": "",
+      "quoted_at": "2026-04-08",
+      "origin_zip": "91342",
+      "destination_zip": "98665",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "VANCOUVER",
+      "pallets": "1",
+      "pieces": "12",
+      "length": "50",
+      "width": "50",
+      "height": "34",
+      "weight": "2450",
+      "freight_class": "55"
+    }
+  },
+  "THERMA INC.": {
+    "data": {
+      "company_name": "THERMA INC.",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "95133",
+      "pallet_count": 1,
+      "length_in": 51.0,
+      "width_in": 51.0,
+      "height_in": 45.0,
+      "weight_lb": 2100.0,
+      "pieces": 39,
+      "freight_class": "60",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "SAN JOSE ",
+      "shipment_date": "2026-04-09",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "TFORCE",
+      "price": 788.24,
+      "transit_days": 1,
+      "source": "",
+      "quoted_at": "2026-04-09",
+      "origin_zip": "91342",
+      "destination_zip": "95133",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "SAN JOSE",
+      "pallets": "1",
+      "pieces": "39",
+      "length": "51",
+      "width": "51",
+      "height": "45",
+      "weight": "2100",
+      "freight_class": "60"
+    }
+  },
+  "R & R": {
+    "data": {
+      "company_name": "R & R",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "92154",
+      "pallet_count": 1,
+      "length_in": 48.0,
+      "width_in": 42.0,
+      "height_in": 23.0,
+      "weight_lb": 470.0,
+      "pieces": 10,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "San Diego, CA",
+      "shipment_date": "2026-04-09",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "NUMARK",
+      "price": 112.26,
+      "transit_days": 1,
+      "source": "",
+      "quoted_at": "2026-04-09",
+      "origin_zip": "91342",
+      "destination_zip": "92154",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "San Diego, CA",
+      "pallets": "1",
+      "pieces": "10",
+      "length": "48",
+      "width": "42",
+      "height": "23",
+      "weight": "470",
+      "freight_class": "70"
+    }
+  },
+  "Damper Express": {
+    "data": {
+      "company_name": "Damper Express",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "40218",
+      "pallet_count": 1,
+      "length_in": 49.0,
+      "width_in": 42.0,
+      "height_in": 32.0,
+      "weight_lb": 690.0,
+      "pieces": 13,
+      "freight_class": "70",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "Louisville, KY",
+      "shipment_date": "2026-04-10",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "TForce Freight",
+      "price": 256.72,
+      "transit_days": 5,
+      "source": "MYCARRIER",
+      "quoted_at": "2026-04-10",
+      "origin_zip": "91342",
+      "destination_zip": "40218",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "Louisville, KY",
+      "pallets": "1",
+      "pieces": "13",
+      "length": "49",
+      "width": "42",
+      "height": "32",
+      "weight": "690",
+      "freight_class": "70"
+    }
+  },
+  "GOW SUPPLY": {
+    "data": {
+      "company_name": "GOW SUPPLY",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "94124",
+      "pallet_count": 3,
+      "length_in": 48.0,
+      "width_in": 48.0,
+      "height_in": 79.0,
+      "weight_lb": 10930.0,
+      "pieces": 3,
+      "freight_class": "55",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "SAN FRANCISCO",
+      "shipment_date": "2026-04-13",
+      "pallet_items": [
+        {
+          "pallet_number": 1,
+          "pieces": 1,
+          "length_in": 48.0,
+          "width_in": 48.0,
+          "height_in": 79.0,
+          "weight_lb": 650.0,
+          "freight_class": "150"
+        },
+        {
+          "pallet_number": 2,
+          "pieces": 1,
+          "length_in": 48.0,
+          "width_in": 48.0,
+          "height_in": 65.0,
+          "weight_lb": 550.0,
+          "freight_class": "150"
+        },
+        {
+          "pallet_number": 3,
+          "pieces": 1,
+          "length_in": 48.0,
+          "width_in": 42.0,
+          "height_in": 75.0,
+          "weight_lb": 9730.0,
+          "freight_class": "50"
+        }
+      ]
+    },
+    "last_quote_summary": {
+      "carrier": "ROADRUNNER TRANSPORTATION SERVICES INC",
+      "price": 648.31,
+      "transit_days": 2,
+      "source": "SCHNEIDER",
+      "quoted_at": "2026-04-13",
+      "origin_zip": "91342",
+      "destination_zip": "94124",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "SAN FRANCISCO",
+      "pallets": "3",
+      "pieces": "3",
+      "length": "48",
+      "width": "48",
+      "height": "79",
+      "weight": "10930",
+      "freight_class": "55"
+    }
+  },
+  "LUKJAN METAL PRODUCTS - OH": {
+    "data": {
+      "company_name": "LUKJAN METAL PRODUCTS - OH",
+      "order_number": "",
+      "origin_zip": "91342",
+      "destination_zip": "44030",
+      "pallet_count": 1,
+      "length_in": 52.0,
+      "width_in": 52.0,
+      "height_in": 59.0,
+      "weight_lb": 2240.0,
+      "pieces": 60,
+      "freight_class": "65",
+      "pickup_city": "SYLMAR, CA",
+      "delivery_city": "CONNEAUT, OH",
+      "shipment_date": "2026-04-15",
+      "pallet_items": []
+    },
+    "last_quote_summary": {
+      "carrier": "Estes Express",
+      "price": 595.91,
+      "transit_days": 6,
+      "source": "MYCARRIER",
+      "top_quotes": [
+        {
+          "carrier": "Estes Express",
+          "price": 595.91,
+          "transit_days": 6,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "ABF Freight",
+          "price": 615.15,
+          "transit_days": 5,
+          "source": "MYCARRIER"
+        },
+        {
+          "carrier": "Central Transport",
+          "price": 626.81,
+          "transit_days": 6,
+          "source": "MYCARRIER"
+        }
+      ],
+      "quoted_at": "2026-04-15",
+      "origin_zip": "91342",
+      "destination_zip": "44030",
+      "origin_city": "SYLMAR, CA",
+      "destination_city": "CONNEAUT, OH",
+      "pallets": "1",
+      "pieces": "60",
+      "length": "52",
+      "width": "52",
+      "height": "59",
+      "weight": "2240",
       "freight_class": "65"
     }
   }

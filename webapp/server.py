@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import gspread
+from gspread.exceptions import WorksheetNotFound
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -53,6 +54,16 @@ SCOPES = [
 
 SHEET_NAME = "Freight Quote Agent (MVP)"
 INPUT_TAB = "Input"
+LOGS_TAB = "LOGS"
+LOGS_HEADERS = [
+    "Date",
+    "Customer",
+    "Destination City",
+    "Pallet Qty",
+    "Pallet Weight",
+    "Dimenstions(48 x 48 x 20)",
+    "Top 3 cheapest",
+]
 
 CELL_MAP = {
     "order_number": "B2",
@@ -130,6 +141,7 @@ WEBAPP_ENABLE_GLT = False
 WEBAPP_GLT_HEADLESS = True
 WEBAPP_GLT_SLOW_MO = 0
 WEBAPP_GLT_ONLY_DEBUG = False
+WEBAPP_REVEAL_SLOW_MO = int((os.getenv("WEBAPP_REVEAL_SLOW_MO") or "250").strip() or "250")
 INITIAL_PARALLEL_WORKERS = 3
 DIRECT_PARALLEL_WORKERS = 2
 RESULT_DISPLAY_ORDER = [
@@ -216,7 +228,7 @@ def no_cache_headers() -> dict[str, str]:
 
 
 def profile_input_data_from_payload(payload: "InputPayload") -> dict:
-    return payload.model_dump(exclude={"quote_target"})
+    return payload.model_dump(exclude={"quote_target", "browser_visibility"})
 
 
 class PalletItem(BaseModel):
@@ -233,6 +245,7 @@ class InputPayload(BaseModel):
     company_name: Optional[str] = Field(default="")
     order_number: Optional[str] = Field(default="")
     quote_target: Optional[str] = Field(default="ALL")
+    browser_visibility: Optional[str] = Field(default="CONCEAL")
     origin_zip: str
     destination_zip: str
     pallet_count: int
@@ -636,12 +649,12 @@ def write_direct_result(ss, carrier_name: str, result: dict, quote_data: dict):
     )
 
 
-def run_glt_job(quote_data: dict):
+def run_glt_job(quote_data: dict, *, headless: bool | None = None, slow_mo: int | None = None):
     try:
         raw_glt_results = quote_glt(
             quote_data,
-            headless=WEBAPP_GLT_HEADLESS,
-            slow_mo=WEBAPP_GLT_SLOW_MO,
+            headless=WEBAPP_GLT_HEADLESS if headless is None else headless,
+            slow_mo=WEBAPP_GLT_SLOW_MO if slow_mo is None else slow_mo,
         )
         wrapped_glt = wrap_glt_results(raw_glt_results, quote_data)
         return {
@@ -658,9 +671,9 @@ def run_glt_job(quote_data: dict):
         }
 
 
-def run_schneider_job(quote_data: dict):
+def run_schneider_job(quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
     try:
-        raw_schneider_results = quote_schneider(quote_data)
+        raw_schneider_results = quote_schneider(quote_data, headless=headless, slow_mo=slow_mo)
         wrapped_schneider = wrap_schneider_results(raw_schneider_results, quote_data)
         return {
             "carrier": "SCHNEIDER",
@@ -676,9 +689,9 @@ def run_schneider_job(quote_data: dict):
         }
 
 
-def run_mycarrier_job(quote_data: dict):
+def run_mycarrier_job(quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
     try:
-        raw_mycarrier_results = quote_mycarrier(quote_data)
+        raw_mycarrier_results = quote_mycarrier(quote_data, headless=headless, slow_mo=slow_mo)
         wrapped_mycarrier = wrap_mycarrier_results(raw_mycarrier_results, quote_data)
         return {
             "carrier": "MYCARRIER",
@@ -694,9 +707,9 @@ def run_mycarrier_job(quote_data: dict):
         }
 
 
-def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict):
+def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
     try:
-        result = fn(quote_data)
+        result = fn(quote_data, headless=headless, slow_mo=slow_mo)
         return {
             "carrier": carrier_name,
             "wrapped": result_with_inputs(result, quote_data),
@@ -780,8 +793,151 @@ def normalized_quote_target(value: str | None) -> str:
     return raw
 
 
+def normalized_browser_visibility(value: str | None) -> str:
+    raw = str(value or "CONCEAL").strip().upper() or "CONCEAL"
+    allowed = {"CONCEAL", "REVEAL"}
+    if raw not in allowed:
+        raise HTTPException(status_code=400, detail=f"Unsupported browser visibility: {raw}")
+    return raw
+
+
+def quote_browser_options(payload: InputPayload) -> dict[str, int | bool]:
+    reveal_browser = normalized_browser_visibility(payload.browser_visibility) == "REVEAL"
+    return {
+        "headless": not reveal_browser,
+        "slow_mo": WEBAPP_REVEAL_SLOW_MO if reveal_browser else 0,
+    }
+
+
 def normalize_carrier_key(name: str) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", str(name or "").upper()).strip()
+
+
+def quote_price_number(value) -> Optional[float]:
+    if value in (None, "", 0, 0.0):
+        return None
+    try:
+        cleaned = re.sub(r"[^0-9.]+", "", str(value))
+        if not cleaned:
+            return None
+        price = float(cleaned)
+    except (TypeError, ValueError):
+        return None
+    return price if price > 0 else None
+
+
+def ranked_cheapest_quotes(results: list[dict]) -> list[dict]:
+    best_by_carrier: dict[str, dict] = {}
+    for item in results or []:
+        broker_quotes = item.get("broker_quotes") or []
+        if broker_quotes:
+            for broker_quote in broker_quotes:
+                price = quote_price_number(broker_quote.get("price"))
+                if price is None:
+                    continue
+                quote = {
+                    "carrier": broker_quote.get("carrier", ""),
+                    "price": price,
+                    "transit_days": broker_quote.get("transit_days"),
+                    "source": item.get("carrier", ""),
+                    "inputs": item.get("inputs") or {},
+                }
+                carrier_key = normalize_carrier_key(quote.get("carrier"))
+                existing = best_by_carrier.get(carrier_key)
+                if carrier_key and (existing is None or price < float(existing.get("price"))):
+                    best_by_carrier[carrier_key] = quote
+            continue
+
+        price = quote_price_number(item.get("price"))
+        if price is None or item.get("status") == "skipped":
+            continue
+        quote = {
+            **item,
+            "price": price,
+        }
+        carrier_key = normalize_carrier_key(quote.get("carrier"))
+        existing = best_by_carrier.get(carrier_key)
+        if carrier_key and (existing is None or price < float(existing.get("price"))):
+            best_by_carrier[carrier_key] = quote
+
+    return sorted(best_by_carrier.values(), key=lambda item: float(item.get("price")))
+
+
+def format_log_price(value) -> str:
+    price = quote_price_number(value)
+    if price is None:
+        return ""
+    return f"${price:,.2f}"
+
+
+def top_cheapest_log_text(top_quotes: list[dict]) -> str:
+    parts = []
+    for index, quote in enumerate(top_quotes[:3], start=1):
+        transit_days = quote.get("transit_days")
+        transit_text = f" - {transit_days} day(s)" if transit_days not in (None, "") else ""
+        source = quote.get("source")
+        source_text = f" via {source}" if source and source != quote.get("carrier") else ""
+        parts.append(f"#{index} {quote.get('carrier') or '-'} - {format_log_price(quote.get('price'))}{transit_text}{source_text}")
+    return "\n".join(parts)
+
+
+def log_dimensions_label(payload: InputPayload) -> str:
+    pallet_items = normalized_pallet_items(payload)
+    if len(pallet_items) > 1:
+        dimensions = [
+            f"{item.get('length') or '-'} x {item.get('width') or '-'} x {item.get('height') or '-'}"
+            for item in pallet_items
+        ]
+        unique_dimensions = list(dict.fromkeys(dimensions))
+        if len(unique_dimensions) == 1:
+            return unique_dimensions[0]
+        return "; ".join(f"#{index + 1} {value}" for index, value in enumerate(dimensions))
+
+    length, width, height = first_pallet_dimensions(payload)
+    return f"{length or '-'} x {width or '-'} x {height or '-'}"
+
+
+def logs_worksheet(ss):
+    try:
+        ws = with_gsheets_retry(lambda: ss.worksheet(LOGS_TAB))
+    except WorksheetNotFound:
+        ws = with_gsheets_retry(lambda: ss.add_worksheet(title=LOGS_TAB, rows=1000, cols=len(LOGS_HEADERS)))
+
+    first_row = with_gsheets_retry(lambda: ws.row_values(1))
+    if first_row[: len(LOGS_HEADERS)] != LOGS_HEADERS:
+        with_gsheets_retry(lambda: ws.update(f"A1:G1", [LOGS_HEADERS], value_input_option="USER_ENTERED"))
+        try:
+            ws.freeze(rows=1)
+            ws.format(
+                "A1:G1",
+                {
+                    "backgroundColor": {"red": 0.93, "green": 0.96, "blue": 0.91},
+                    "horizontalAlignment": "CENTER",
+                    "textFormat": {"bold": True},
+                    "wrapStrategy": "WRAP",
+                },
+            )
+        except Exception:
+            pass
+    return ws
+
+
+def append_quote_log(ss, payload: InputPayload, results: list[dict]):
+    top_quotes = ranked_cheapest_quotes(results)[:3]
+    if not top_quotes:
+        return
+
+    row = [
+        date.today().isoformat(),
+        (payload.company_name or "").strip(),
+        (payload.delivery_city or "").strip(),
+        format_numeric_value(payload.pallet_count),
+        f"{format_numeric_value(aggregate_weight(payload))} lb",
+        log_dimensions_label(payload),
+        top_cheapest_log_text(top_quotes),
+    ]
+    ws = logs_worksheet(ss)
+    with_gsheets_retry(lambda: ws.append_row(row, value_input_option="USER_ENTERED"))
 
 
 MYCARRIER_DIRECT_MAP = {
@@ -891,25 +1047,8 @@ def update_profile_last_quote(company_name: str, results: list[dict], latest_pro
         save_profiles(profiles)
         return
 
-    priced = []
-    for item in results:
-        broker_quotes = item.get("broker_quotes") or []
-        if broker_quotes:
-            for broker_quote in broker_quotes:
-                if broker_quote.get("price") not in (None, "", 0, 0.0):
-                    priced.append(
-                        {
-                            "carrier": broker_quote.get("carrier", ""),
-                            "price": broker_quote.get("price"),
-                            "transit_days": broker_quote.get("transit_days"),
-                            "source": item.get("carrier", ""),
-                            "inputs": item.get("inputs") or {},
-                        }
-                    )
-            continue
-        if item.get("price") not in (None, "", 0, 0.0):
-            priced.append(item)
-    if not priced:
+    top_quotes = ranked_cheapest_quotes(results)[:3]
+    if not top_quotes:
         profiles[name] = {
             "data": stored_data,
             "last_quote_summary": profile_summary(record),
@@ -917,7 +1056,8 @@ def update_profile_last_quote(company_name: str, results: list[dict], latest_pro
         save_profiles(profiles)
         return
 
-    cheapest = min(priced, key=lambda item: float(item.get("price")))
+    cheapest = top_quotes[0]
+    inputs = cheapest.get("inputs") or {}
     profiles[name] = {
         "data": stored_data,
         "last_quote_summary": {
@@ -925,18 +1065,27 @@ def update_profile_last_quote(company_name: str, results: list[dict], latest_pro
             "price": cheapest.get("price"),
             "transit_days": cheapest.get("transit_days"),
             "source": cheapest.get("source", ""),
+            "top_quotes": [
+                {
+                    "carrier": item.get("carrier", ""),
+                    "price": item.get("price"),
+                    "transit_days": item.get("transit_days"),
+                    "source": item.get("source", ""),
+                }
+                for item in top_quotes
+            ],
             "quoted_at": date.today().isoformat(),
-            "origin_zip": (cheapest.get("inputs") or {}).get("origin_zip", ""),
-            "destination_zip": (cheapest.get("inputs") or {}).get("destination_zip", ""),
-            "origin_city": (cheapest.get("inputs") or {}).get("origin_city", ""),
-            "destination_city": (cheapest.get("inputs") or {}).get("destination_city", ""),
-            "pallets": (cheapest.get("inputs") or {}).get("pallets", ""),
-            "pieces": (cheapest.get("inputs") or {}).get("pieces", ""),
-            "length": (cheapest.get("inputs") or {}).get("length", ""),
-            "width": (cheapest.get("inputs") or {}).get("width", ""),
-            "height": (cheapest.get("inputs") or {}).get("height", ""),
-            "weight": (cheapest.get("inputs") or {}).get("weight", ""),
-            "freight_class": (cheapest.get("inputs") or {}).get("freight_class", ""),
+            "origin_zip": inputs.get("origin_zip", ""),
+            "destination_zip": inputs.get("destination_zip", ""),
+            "origin_city": inputs.get("origin_city", ""),
+            "destination_city": inputs.get("destination_city", ""),
+            "pallets": inputs.get("pallets", ""),
+            "pieces": inputs.get("pieces", ""),
+            "length": inputs.get("length", ""),
+            "width": inputs.get("width", ""),
+            "height": inputs.get("height", ""),
+            "weight": inputs.get("weight", ""),
+            "freight_class": inputs.get("freight_class", ""),
         },
     }
     save_profiles(profiles)
@@ -1111,6 +1260,7 @@ def run_quote(payload: InputPayload):
 
         quote_data = payload_to_quote_data(payload)
         quote_target = normalized_quote_target(payload.quote_target)
+        browser_options = quote_browser_options(payload)
         run_all_targets = quote_target == "ALL"
         result_map: dict[str, dict] = {}
         covered_direct_carriers = set()
@@ -1118,12 +1268,27 @@ def run_quote(payload: InputPayload):
 
         initial_jobs = []
         if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
-            initial_jobs.append(("GLT", lambda quote_data=quote_data: run_glt_job(quote_data)))
+            initial_jobs.append(
+                (
+                    "GLT",
+                    lambda quote_data=quote_data, browser_options=browser_options: run_glt_job(quote_data, **browser_options),
+                )
+            )
         if not WEBAPP_GLT_ONLY_DEBUG:
             if run_all_targets or quote_target == "SCHNEIDER":
-                initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
+                initial_jobs.append(
+                    (
+                        "SCHNEIDER",
+                        lambda quote_data=quote_data, browser_options=browser_options: run_schneider_job(quote_data, **browser_options),
+                    )
+                )
             if run_all_targets or quote_target == "MYCARRIER":
-                initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
+                initial_jobs.append(
+                    (
+                        "MYCARRIER",
+                        lambda quote_data=quote_data, browser_options=browser_options: run_mycarrier_job(quote_data, **browser_options),
+                    )
+                )
 
         for _, job_result in run_jobs_limited(initial_jobs, max_workers=INITIAL_PARALLEL_WORKERS):
             upsert_result(result_map, job_result["wrapped"])
@@ -1158,7 +1323,12 @@ def run_quote(payload: InputPayload):
                 queued_direct.append(
                     (
                         carrier_name,
-                        lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data: run_direct_carrier_job(carrier_name, fn, quote_data),
+                        lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
+                            carrier_name,
+                            fn,
+                            quote_data,
+                            **browser_options,
+                        ),
                     )
                 )
 
@@ -1175,7 +1345,7 @@ def run_quote(payload: InputPayload):
                     continue
                 if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
                     continue
-                retried_job = run_direct_carrier_job(carrier_name, fn, quote_data)
+                retried_job = run_direct_carrier_job(carrier_name, fn, quote_data, **browser_options)
                 if retried_job.get("direct_result") is not None:
                     write_direct_result(ss, carrier_name, retried_job["direct_result"], quote_data)
                 retried_result = retried_job["wrapped"]
@@ -1188,10 +1358,11 @@ def run_quote(payload: InputPayload):
         results = ordered_results(result_map)
 
         update_profile_last_quote(payload.company_name, results, profile_input_data_from_payload(payload))
+        append_quote_log(ss, payload, results)
 
         return {
             "ok": True,
-            "message": "Input saved, broker rows prepared, and carrier quotes written. Latest input values were kept in the Input sheet.",
+            "message": "Input saved, broker rows prepared, carrier quotes written, and Top 3 results logged. Latest input values were kept in the Input sheet.",
             "batch_id": broker_result["batch_id"],
             "broker_rows_written": broker_result["row_count"],
             "results": results,
@@ -1223,6 +1394,7 @@ def run_quote_stream(payload: InputPayload):
 
             quote_data = payload_to_quote_data(payload)
             quote_target = normalized_quote_target(payload.quote_target)
+            browser_options = quote_browser_options(payload)
             run_all_targets = quote_target == "ALL"
             result_map: dict[str, dict] = {}
             covered_direct_carriers = set()
@@ -1238,12 +1410,27 @@ def run_quote_stream(payload: InputPayload):
 
             initial_jobs = []
             if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
-                initial_jobs.append(("GLT", lambda quote_data=quote_data: run_glt_job(quote_data)))
+                initial_jobs.append(
+                    (
+                        "GLT",
+                        lambda quote_data=quote_data, browser_options=browser_options: run_glt_job(quote_data, **browser_options),
+                    )
+                )
             if not WEBAPP_GLT_ONLY_DEBUG:
                 if run_all_targets or quote_target == "SCHNEIDER":
-                    initial_jobs.append(("SCHNEIDER", lambda quote_data=quote_data: run_schneider_job(quote_data)))
+                    initial_jobs.append(
+                        (
+                            "SCHNEIDER",
+                            lambda quote_data=quote_data, browser_options=browser_options: run_schneider_job(quote_data, **browser_options),
+                        )
+                    )
                 if run_all_targets or quote_target == "MYCARRIER":
-                    initial_jobs.append(("MYCARRIER", lambda quote_data=quote_data: run_mycarrier_job(quote_data)))
+                    initial_jobs.append(
+                        (
+                            "MYCARRIER",
+                            lambda quote_data=quote_data, browser_options=browser_options: run_mycarrier_job(quote_data, **browser_options),
+                        )
+                    )
 
             if initial_jobs:
                 yield stream_line({"type": "status", "message": "Quoting broker portals in parallel..."})
@@ -1316,7 +1503,12 @@ def run_quote_stream(payload: InputPayload):
                     direct_jobs.append(
                         (
                             carrier_name,
-                            lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data: run_direct_carrier_job(carrier_name, fn, quote_data),
+                            lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
+                                carrier_name,
+                                fn,
+                                quote_data,
+                                **browser_options,
+                            ),
                         )
                     )
 
@@ -1367,7 +1559,7 @@ def run_quote_stream(payload: InputPayload):
                             "message": f"Retrying {carrier_name} after full carrier pass...",
                         }
                     )
-                    retried_job = run_direct_carrier_job(carrier_name, fn, quote_data)
+                    retried_job = run_direct_carrier_job(carrier_name, fn, quote_data, **browser_options)
                     if retried_job.get("direct_result") is not None:
                         write_direct_result(ss, carrier_name, retried_job["direct_result"], quote_data)
                     retried_result = retried_job["wrapped"]
@@ -1389,11 +1581,13 @@ def run_quote_stream(payload: InputPayload):
 
             results = ordered_results(result_map)
             update_profile_last_quote(payload.company_name, results, profile_input_data_from_payload(payload))
+            yield stream_line({"type": "status", "message": "Writing Top 3 results to LOGS..."})
+            append_quote_log(ss, payload, results)
             yield stream_line(
                 {
                     "type": "complete",
                     "run_id": run_id,
-                    "message": "Quotes completed and written to Broker Result. Latest input values were kept in the Input sheet.",
+                    "message": "Quotes completed, written to Broker Result, and logged to LOGS. Latest input values were kept in the Input sheet.",
                     "batch_id": broker_result["batch_id"],
                     "broker_rows_written": broker_result["row_count"],
                     "results": results,

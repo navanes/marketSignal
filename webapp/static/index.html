@@ -232,18 +232,23 @@
       border-color: var(--brand);
     }
 
+    select:focus {
+      outline: 2px solid rgba(31, 107, 79, 0.18);
+      border-color: var(--brand);
+    }
+
     .actions {
       display: flex;
       gap: 12px;
       align-items: center;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
     }
 
     .run-target-picker {
       position: relative;
       min-width: 260px;
       max-width: 100%;
-      flex: 0 1 300px;
+      flex: 1 1 260px;
     }
 
     .run-target-trigger {
@@ -372,6 +377,7 @@
     }
 
     .status {
+      flex: 1 1 220px;
       min-height: 24px;
       font-weight: 700;
     }
@@ -394,16 +400,19 @@
       display: grid;
     }
 
+    .run-loader-inner {
+      display: grid;
+      justify-items: center;
+      gap: 14px;
+    }
+
     .run-loader-mark {
-      width: 160px;
-      height: 160px;
-      border-radius: 24px;
-      background:
-        linear-gradient(145deg, rgba(255,255,255,.92), rgba(245, 237, 213, .92)),
-        #fffdf7;
-      box-shadow: 0 18px 50px rgba(31, 54, 34, 0.16);
+      width: 136px;
+      height: 136px;
+      border-radius: 50%;
+      background: transparent;
       position: relative;
-      overflow: hidden;
+      overflow: visible;
       animation: loaderPulse 1.15s ease-in-out infinite;
     }
 
@@ -413,9 +422,19 @@
       inset: 0;
       background-image: url("/LOGO-blue.png");
       background-repeat: no-repeat;
-      background-size: 144px auto;
+      background-size: contain;
       background-position: center;
-      transform: scale(0.94);
+      filter: drop-shadow(0 14px 28px rgba(31, 54, 34, 0.14));
+    }
+
+    .run-loader-text {
+      max-width: min(520px, calc(100vw - 48px));
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+      text-align: center;
+      text-shadow: 0 1px 2px rgba(255, 253, 247, 0.9);
     }
 
     @keyframes loaderPulse {
@@ -488,32 +507,32 @@
 
     .profile-summary.show {
       display: grid;
-      gap: 6px;
+      gap: 8px;
       margin-top: 8px;
       padding: 14px 16px;
       border-radius: 16px;
-      border: 1px solid #b7d2c2;
-      background: linear-gradient(135deg, #eef8f2, #f9f1dc);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.8);
+      border: 1px solid var(--line);
+      background: linear-gradient(135deg, #eef6ec, #fff8e7);
     }
 
-    .profile-summary .ps-top {
+    .profile-summary .eyebrow-line {
       color: var(--brand);
-      font-size: 18px;
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
       font-weight: 700;
     }
 
-    .profile-summary .ps-main {
-      color: #123d2c;
-      font-size: 20px;
+    .profile-summary .headline {
+      color: var(--ink);
+      font-size: 22px;
       font-weight: 700;
       overflow-wrap: anywhere;
     }
 
-    .profile-summary .ps-line {
+    .profile-summary .detail {
       color: #5b6a5c;
       font-size: 14px;
-      font-weight: 600;
       overflow-wrap: anywhere;
     }
 
@@ -974,6 +993,86 @@
       margin-top: 12px;
     }
 
+    .result-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .result-print-btn {
+      min-height: 42px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .print-choice-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      display: none;
+      place-items: center;
+      padding: 24px;
+      background: rgba(28, 38, 30, 0.34);
+      backdrop-filter: blur(5px);
+    }
+
+    .print-choice-backdrop.show {
+      display: grid;
+    }
+
+    .print-choice-panel {
+      width: min(420px, 100%);
+      padding: 24px;
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background: #fffef8;
+      box-shadow: 0 24px 60px rgba(31, 54, 34, 0.18);
+    }
+
+    .print-choice-title {
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    .print-choice-copy {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .print-choice-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .print-choice-actions button {
+      width: 100%;
+      min-height: 46px;
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+
+    .print-choice-cancel {
+      grid-column: 1 / -1;
+    }
+
+    .print-frame {
+      position: fixed;
+      right: 0;
+      bottom: 0;
+      width: 0;
+      height: 0;
+      border: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
     .report-banner {
       margin-top: 14px;
       padding: 14px 16px;
@@ -1011,6 +1110,34 @@
     .report-banner .detail {
       color: var(--muted);
       font-size: 14px;
+    }
+
+    .top-rate-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .top-rate-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 10px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(31, 107, 79, 0.12);
+    }
+
+    .top-rate-row .rank {
+      color: var(--brand);
+      font-weight: 700;
+    }
+
+    .top-rate-row .top-rate-price {
+      color: var(--ink);
+      font-size: 18px;
+      font-weight: 800;
+      white-space: nowrap;
     }
 
     .result-item {
@@ -1268,10 +1395,29 @@
 
       .actions {
         gap: 10px;
+        flex-wrap: wrap;
       }
 
       .actions > button {
-        flex: 1 1 calc(50% - 5px);
+        flex: 1 1 100%;
+      }
+
+      .run-target-picker,
+      .status {
+        flex: 1 1 100%;
+      }
+
+      .result-top {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .result-print-btn {
+        width: 100%;
+      }
+
+      .top-rate-row {
+        grid-template-columns: auto minmax(0, 1fr);
       }
 
       .share-banner {
@@ -1295,16 +1441,12 @@
         border-radius: 14px;
       }
 
-      .profile-summary .ps-top {
-        font-size: 13px;
-      }
-
-      .profile-summary .ps-main {
+      .profile-summary .headline {
         font-size: 16px;
         line-height: 1.35;
       }
 
-      .profile-summary .ps-line {
+      .profile-summary .detail {
         font-size: 12px;
         line-height: 1.4;
       }
@@ -1406,7 +1548,10 @@
 </head>
 <body>
   <div id="run-loader" class="run-loader" aria-hidden="true">
-    <div class="run-loader-mark" aria-hidden="true"></div>
+    <div class="run-loader-inner">
+      <div class="run-loader-mark" aria-hidden="true"></div>
+      <div id="run-loader-text" class="run-loader-text">Preparing quote run...</div>
+    </div>
   </div>
   <div class="shell">
     <section class="hero">
@@ -1537,23 +1682,32 @@
             </button>
             <div id="quote-target-dropdown" class="company-dropdown target-dropdown" role="listbox" aria-label="Quote target"></div>
           </div>
+          <div id="browser-visibility-picker" class="run-target-picker">
+            <input id="browser-visibility" name="browser_visibility" type="hidden" value="CONCEAL" />
+            <button id="browser-visibility-trigger" class="run-target-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="browser-visibility-dropdown" aria-label="Browser process visibility">
+              <span id="browser-visibility-label" class="run-target-label">Do Not Reveal</span>
+              <span class="run-target-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="browser-visibility-dropdown" class="company-dropdown target-dropdown" role="listbox" aria-label="Browser process visibility"></div>
+          </div>
           <button class="primary" id="run-btn" type="submit">Run Full Quote Flow</button>
-          <button class="secondary" id="save-btn" type="button">Only Save Inputs</button>
           <button class="secondary" id="save-profile-btn" type="button">Save Company</button>
           <button class="secondary" id="delete-profile-btn" type="button">Delete Company</button>
-          <button class="danger" id="stop-btn" type="button" disabled>Stop Process</button>
           <div id="status" class="status"></div>
         </div>
       </form>
 
       <div id="result" class="result">
-        <strong id="result-title">Latest Run</strong>
+        <div class="result-top">
+          <strong id="result-title">Latest Run</strong>
+          <button id="print-results-btn" class="secondary result-print-btn" type="button" disabled>Print Report</button>
+        </div>
         <div class="result-grid">
           <div class="metric"><span class="k">Batch ID</span><span id="batch-id" class="v">-</span></div>
         </div>
         <div id="report-banner" class="report-banner">
           <div class="report-banner-top">
-            <div class="eyebrow-line">Cheapest Report</div>
+            <div class="eyebrow-line">Top 3 Cheapest</div>
             <div id="report-link-slot"></div>
           </div>
           <div id="report-headline" class="headline">-</div>
@@ -1562,6 +1716,18 @@
         <div id="result-list" class="result-list"></div>
       </div>
     </section>
+    </div>
+  </div>
+
+  <div id="print-choice-backdrop" class="print-choice-backdrop" aria-hidden="true">
+    <div class="print-choice-panel" role="dialog" aria-modal="true" aria-labelledby="print-choice-title">
+      <h2 id="print-choice-title" class="print-choice-title">Print or PDF?</h2>
+      <p id="print-choice-copy" class="print-choice-copy">Choose how you want to use this quote report. PDF opens the browser print dialog with instructions to save as PDF.</p>
+      <div class="print-choice-actions">
+        <button id="print-paper-btn" class="primary" type="button">Print</button>
+        <button id="print-pdf-btn" class="secondary" type="button">Make PDF</button>
+        <button id="print-cancel-btn" class="secondary print-choice-cancel" type="button">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -1647,10 +1813,13 @@
     const quoteTargetTriggerEl = document.getElementById("quote-target-trigger");
     const quoteTargetLabelEl = document.getElementById("quote-target-label");
     const quoteTargetDropdownEl = document.getElementById("quote-target-dropdown");
-    const saveBtn = document.getElementById("save-btn");
+    const browserVisibilityEl = document.getElementById("browser-visibility");
+    const browserVisibilityPickerEl = document.getElementById("browser-visibility-picker");
+    const browserVisibilityTriggerEl = document.getElementById("browser-visibility-trigger");
+    const browserVisibilityLabelEl = document.getElementById("browser-visibility-label");
+    const browserVisibilityDropdownEl = document.getElementById("browser-visibility-dropdown");
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const deleteProfileBtn = document.getElementById("delete-profile-btn");
-    const stopBtn = document.getElementById("stop-btn");
     const statusEl = document.getElementById("status");
     const shareBannerEl = document.getElementById("share-banner");
     const shareLinksEl = document.getElementById("share-links");
@@ -1660,7 +1829,13 @@
     const reportHeadlineEl = document.getElementById("report-headline");
     const reportDetailEl = document.getElementById("report-detail");
     const reportLinkSlotEl = document.getElementById("report-link-slot");
+    const printResultsBtn = document.getElementById("print-results-btn");
+    const printChoiceBackdropEl = document.getElementById("print-choice-backdrop");
+    const printPaperBtn = document.getElementById("print-paper-btn");
+    const printPdfBtn = document.getElementById("print-pdf-btn");
+    const printCancelBtn = document.getElementById("print-cancel-btn");
     const runLoaderEl = document.getElementById("run-loader");
+    const runLoaderTextEl = document.getElementById("run-loader-text");
     const freightClassInput = document.getElementById("freight_class");
     const volumeEl = document.getElementById("calc-volume");
     const densityEl = document.getElementById("calc-density");
@@ -1702,6 +1877,10 @@
     let profiles = {};
     let visibleProfileNames = [];
     let quoteTargets = [{ value: "ALL", label: "All Carriers + Brokers" }];
+    let browserVisibilityOptions = [
+      { value: "CONCEAL", label: "Do Not Reveal" },
+      { value: "REVEAL", label: "Reveal Process" },
+    ];
     let lastAssistantModel = "";
     let lastAssistantError = "";
     let assistantOpen = false;
@@ -1717,6 +1896,10 @@
     function setStatus(text, kind = "") {
       statusEl.textContent = text;
       statusEl.className = `status ${kind}`;
+    }
+
+    function setLoaderMessage(text) {
+      runLoaderTextEl.textContent = text || "Preparing quote run...";
     }
 
     function setAssistantStatus(text, kind = "") {
@@ -1872,7 +2055,7 @@
       }
 
       activeQuoteSignature = signature;
-      pendingRunContext = { signature, target, appendMode };
+      pendingRunContext = { signature, target, appendMode, payload: { ...payload } };
       return pendingRunContext;
     }
 
@@ -1925,8 +2108,8 @@
       return priced.reduce((best, quote) => Number(quote.price) < Number(best.price) ? quote : best, priced[0]);
     }
 
-    function cheapestQuote(results) {
-      const allQuotes = [];
+    function rankedCheapestQuotes(results) {
+      const bestByCarrier = new Map();
       for (const item of results || []) {
         const brokerQuotes = item?.broker_quotes || [];
         if (
@@ -1937,28 +2120,543 @@
           item.price !== undefined &&
           item.price !== ""
         ) {
-          allQuotes.push({
+          const quote = {
             carrier: item.carrier,
             price: Number(item.price),
             transit_days: item.transit_days,
             source: item.carrier,
-          });
+          };
+          const carrierKey = normalizeCarrierKey(quote.carrier);
+          if (carrierKey && Number.isFinite(quote.price)) {
+            const existing = bestByCarrier.get(carrierKey);
+            if (!existing || quote.price < existing.price) {
+              bestByCarrier.set(carrierKey, quote);
+            }
+          }
         }
         for (const brokerQuote of brokerQuotes) {
           if (brokerQuote.price !== null && brokerQuote.price !== undefined && brokerQuote.price !== "") {
-            allQuotes.push({
+            const quote = {
               carrier: brokerQuote.carrier,
               price: Number(brokerQuote.price),
               transit_days: brokerQuote.transit_days,
               service_level: brokerQuote.service_level,
               time: brokerQuote.time,
               source: item.carrier,
-            });
+            };
+            const carrierKey = normalizeCarrierKey(quote.carrier);
+            if (carrierKey && Number.isFinite(quote.price)) {
+              const existing = bestByCarrier.get(carrierKey);
+              if (!existing || quote.price < existing.price) {
+                bestByCarrier.set(carrierKey, quote);
+              }
+            }
           }
         }
       }
-      if (!allQuotes.length) return null;
-      return allQuotes.reduce((best, item) => item.price < best.price ? item : best, allQuotes[0]);
+      return Array.from(bestByCarrier.values()).sort((a, b) => a.price - b.price);
+    }
+
+    function topCheapestQuotes(results, count = 3) {
+      return rankedCheapestQuotes(results).slice(0, count);
+    }
+
+    function cheapestQuote(results) {
+      return topCheapestQuotes(results, 1)[0] || null;
+    }
+
+    function topCheapestReportMarkup(topQuotes = []) {
+      return topQuotes.map((quote, index) => `
+        <div class="top-rate-row">
+          <span class="rank">#${index + 1}</span>
+          <strong>${escapeHtml(quote.carrier || "-")}</strong>
+          ${carrierLinkMarkup(quote.carrier)}
+          <span class="top-rate-price">${escapeHtml(formatPrice(quote.price))}</span>
+          <span>${escapeHtml(`${quote.transit_days ?? "-"} day(s)`)}</span>
+          ${quote.source ? `<span>${escapeHtml(`Source: ${quote.source}`)}</span>` : ""}
+        </div>
+      `).join("");
+    }
+
+    function topCheapestHeadline(topQuotes = []) {
+      const count = Array.isArray(topQuotes) ? Math.min(topQuotes.length, 3) : 0;
+      return `Top ${count} cheapest carrier${count === 1 ? "" : "s"}`;
+    }
+
+    function topCheapestDetailMarkup(topQuotes = []) {
+      const safeQuotes = Array.isArray(topQuotes) ? topQuotes.slice(0, 3) : [];
+      return `<div class="top-rate-list">${topCheapestReportMarkup(safeQuotes)}</div>`;
+    }
+
+    function topCheapestBannerMarkup(topQuotes = []) {
+      return `
+        <div class="report-banner-top">
+          <div class="eyebrow-line">Top 3 Cheapest</div>
+          <div></div>
+        </div>
+        <div class="headline">${escapeHtml(topCheapestHeadline(topQuotes))}</div>
+        <div class="detail">${topCheapestDetailMarkup(topQuotes)}</div>
+      `;
+    }
+
+    function currentCheapestLoaderMessage(results = [], fallbackCarrier = "") {
+      const cheapest = cheapestQuote(results);
+      if (cheapest) {
+        return `${cheapest.carrier || "A carrier"} is cheapest for now at ${formatPrice(cheapest.price)}.`;
+      }
+      if (fallbackCarrier) {
+        return `${fallbackCarrier} finished. Waiting for the next quote...`;
+      }
+      return "Quoting carriers and brokers...";
+    }
+
+    function printDateTimeLabel() {
+      return new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date());
+    }
+
+    function shipmentSummaryFromResults(results = []) {
+      const firstInputs = Array.isArray(results) ? results.find((item) => item?.inputs)?.inputs || {} : {};
+      return {
+        origin: `${firstInputs.origin_zip || "-"} ${firstInputs.origin_city || ""}`.trim(),
+        destination: `${firstInputs.destination_zip || "-"} ${firstInputs.destination_city || ""}`.trim(),
+        freightClass: firstInputs.freight_class || "-",
+        weight: firstInputs.weight || "-",
+        dimensions: `${firstInputs.length || "-"} x ${firstInputs.width || "-"} x ${firstInputs.height || "-"}`,
+        piecesPallets: `${firstInputs.pieces || "-"} / ${firstInputs.pallets || "-"}`,
+        shipmentDate: firstInputs.shipment_date || "-",
+      };
+    }
+
+    function printBrokerQuotesMarkup(item) {
+      const brokerQuotes = Array.isArray(item?.broker_quotes) ? item.broker_quotes : [];
+      if (!brokerQuotes.length) return "";
+      return `
+        <div class="print-broker-block">
+          <div class="print-section-title">Broker Quotes</div>
+          <table class="print-table">
+            <thead>
+              <tr>
+                <th>Carrier</th>
+                <th>Service</th>
+                <th>Transit</th>
+                <th>Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${brokerQuotes.map((quote) => `
+                <tr>
+                  <td>${escapeHtml(quote.carrier || "-")}</td>
+                  <td>${escapeHtml(quote.service_level || quote.time || "-")}</td>
+                  <td>${escapeHtml(`${quote.transit_days ?? "-"} day(s)`)}</td>
+                  <td>${escapeHtml(formatPrice(quote.price))}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function printPalletMarkup(inputs = {}) {
+      const palletItems = Array.isArray(inputs.pallet_items) ? inputs.pallet_items : [];
+      if (palletItems.length <= 1) return "";
+      return `
+        <div class="print-pallets">
+          <div class="print-section-title">Pallet Breakdown</div>
+          <div class="print-note">${palletItems.map((item) => (
+            `#${item.pallet_number} ${item.length}x${item.width}x${item.height}, ${item.weight} lb, ${item.pieces} pcs, class ${item.freight_class || "-"}`
+          )).join(" | ")}</div>
+        </div>
+      `;
+    }
+
+    function buildPrintReportHtml(batchId, results = []) {
+      const safeResults = Array.isArray(results) ? results : [];
+      const topQuotes = topCheapestQuotes(safeResults, 3);
+      const shipment = shipmentSummaryFromResults(safeResults);
+      const cards = safeResults.map((item) => {
+        const inputs = item.inputs || {};
+        const isSkipped = item.status === "skipped";
+        const debug = item.debug || {};
+        const skipMessage = escapeHtml(String(item.error || "Carrier did not return a usable quote for this destination.").trim());
+        return `
+          <section class="print-card ${isSkipped ? "is-skipped" : ""}">
+            <div class="print-card-head">
+              <div>
+                <div class="print-card-title">${escapeHtml(item.carrier || "-")}</div>
+                <div class="print-card-sub">${isSkipped ? "Skipped result" : "Quoted result"}</div>
+              </div>
+              <div class="print-price">${escapeHtml(formatPrice(item.price))}</div>
+            </div>
+            <div class="print-stats">
+              <div class="print-stat"><span>Transit</span><strong>${escapeHtml(String(item.transit_days ?? "-"))} day(s)</strong></div>
+              <div class="print-stat"><span>Class</span><strong>${escapeHtml(inputs.freight_class || "-")}</strong></div>
+              <div class="print-stat"><span>Weight</span><strong>${escapeHtml(String(inputs.weight || "-"))}</strong></div>
+              <div class="print-stat"><span>Pieces / Pallets</span><strong>${escapeHtml(`${inputs.pieces || "-"} / ${inputs.pallets || "-"}`)}</strong></div>
+            </div>
+            <div class="print-meta">
+              <div><strong>Origin:</strong> ${escapeHtml(`${inputs.origin_zip || "-"} ${inputs.origin_city || ""}`.trim())}</div>
+              <div><strong>Destination:</strong> ${escapeHtml(`${inputs.destination_zip || "-"} ${inputs.destination_city || ""}`.trim())}</div>
+              <div><strong>Dimensions:</strong> ${escapeHtml(`${inputs.length || "-"} x ${inputs.width || "-"} x ${inputs.height || "-"}`)}</div>
+              <div><strong>Shipment Date:</strong> ${escapeHtml(inputs.shipment_date || "-")}</div>
+            </div>
+            ${isSkipped ? `<div class="print-alert">Skipped: ${skipMessage}</div>` : ""}
+            ${(debug.cn_total || debug.us_total) ? `<div class="print-note">Debug totals: CN=${escapeHtml(debug.cn_total || "-")} | US=${escapeHtml(debug.us_total || "-")}</div>` : ""}
+            ${printPalletMarkup(inputs)}
+            ${printBrokerQuotesMarkup(item)}
+          </section>
+        `;
+      }).join("");
+
+      return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Freight Quote Report</title>
+  <style>
+    :root {
+      --ink: #223127;
+      --muted: #617062;
+      --line: #d8e2d2;
+      --panel: #fffef8;
+      --accent: #1f6b4f;
+      --accent-soft: #edf6f0;
+      --warn: #9d1c1c;
+      --shadow: 0 12px 30px rgba(31, 54, 34, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      background: #f6f7f1;
+    }
+    .page {
+      width: min(100%, 1040px);
+      margin: 0 auto;
+      padding: 28px 24px 40px;
+    }
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand img {
+      width: 64px;
+      height: 64px;
+      object-fit: contain;
+    }
+    .eyebrow {
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 6px 0 4px;
+      font-size: 34px;
+      line-height: 1;
+    }
+    .hero-meta {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: right;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+    .summary-card, .shipment-card, .print-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .summary-card {
+      padding: 14px 16px;
+    }
+    .summary-card span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 6px;
+    }
+    .summary-card strong {
+      font-size: 20px;
+    }
+    .summary-card .sub {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.35;
+      margin-top: 4px;
+    }
+    .shipment-card {
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+    .section-title {
+      margin: 0 0 14px;
+      color: var(--accent);
+      font-size: 13px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .shipment-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px 18px;
+      font-size: 15px;
+    }
+    .shipment-grid strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .print-list {
+      display: grid;
+      gap: 16px;
+    }
+    .print-card {
+      padding: 18px;
+      page-break-inside: avoid;
+    }
+    .print-card.is-skipped {
+      border-color: #e5b8b8;
+    }
+    .print-card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+    .print-card-title {
+      font-size: 24px;
+      font-weight: 700;
+    }
+    .print-card-sub {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .print-price {
+      color: var(--accent);
+      font-size: 28px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .print-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .print-stat {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: var(--accent-soft);
+    }
+    .print-stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 5px;
+    }
+    .print-stat strong {
+      font-size: 16px;
+    }
+    .print-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 18px;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .print-section-title {
+      color: var(--accent);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    .print-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .print-alert {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #fbebeb;
+      color: var(--warn);
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+    .print-broker-block, .print-pallets {
+      margin-top: 12px;
+    }
+    .print-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .print-table th, .print-table td {
+      border-top: 1px solid var(--line);
+      padding: 10px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .print-table th {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    @media print {
+      body { background: white; }
+      .page { width: 100%; padding: 0; }
+      .summary-card, .shipment-card, .print-card { box-shadow: none; }
+    }
+    @media (max-width: 820px) {
+      .summary-grid, .shipment-grid, .print-stats, .print-meta {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="brand">
+        <img src="${escapeHtml(`${window.location.origin}/LOGO-blue.png`)}" alt="Windgate logo" />
+        <div>
+          <div class="eyebrow">Windgate Freight Quote Agent</div>
+          <h1>Quote Report</h1>
+          <div class="hero-meta">Prepared quote comparison for printing and sharing.</div>
+        </div>
+      </div>
+      <div class="hero-meta">
+        <div><strong>Batch:</strong> ${escapeHtml(batchId || "-")}</div>
+        <div><strong>Printed:</strong> ${escapeHtml(printDateTimeLabel())}</div>
+      </div>
+    </section>
+    <section class="summary-grid">
+      ${[0, 1, 2].map((index) => {
+        const quote = topQuotes[index];
+        return `
+          <div class="summary-card">
+            <span>#${index + 1} Cheapest</span>
+            <strong>${escapeHtml(quote?.carrier || "-")}</strong>
+            <div class="sub">${escapeHtml(quote ? `${formatPrice(quote.price)} | ${quote.transit_days ?? "-"} day(s)` : "-")}</div>
+          </div>
+        `;
+      }).join("")}
+      <div class="summary-card">
+        <span>Total Results</span>
+        <strong>${escapeHtml(String(safeResults.length))}</strong>
+      </div>
+    </section>
+    <section class="shipment-card">
+      <h2 class="section-title">Shipment Summary</h2>
+      <div class="shipment-grid">
+        <div><strong>Origin</strong>${escapeHtml(shipment.origin)}</div>
+        <div><strong>Destination</strong>${escapeHtml(shipment.destination)}</div>
+        <div><strong>Shipment Date</strong>${escapeHtml(shipment.shipmentDate)}</div>
+        <div><strong>Freight Class</strong>${escapeHtml(shipment.freightClass)}</div>
+        <div><strong>Weight</strong>${escapeHtml(String(shipment.weight))}</div>
+        <div><strong>Dimensions</strong>${escapeHtml(shipment.dimensions)}</div>
+        <div><strong>Pieces / Pallets</strong>${escapeHtml(shipment.piecesPallets)}</div>
+      </div>
+    </section>
+    <section class="print-list">
+      ${cards || `<div class="shipment-card"><div class="print-note">No quote results are available to print.</div></div>`}
+    </section>
+  </main>
+</body>
+</html>`;
+    }
+
+    function hidePrintChoice() {
+      printChoiceBackdropEl.classList.remove("show");
+      printChoiceBackdropEl.setAttribute("aria-hidden", "true");
+    }
+
+    function showPrintChoice() {
+      if (!latestResults.length) {
+        setStatus("Run a quote first before printing the report.", "err");
+        return;
+      }
+      printChoiceBackdropEl.classList.add("show");
+      printChoiceBackdropEl.setAttribute("aria-hidden", "false");
+      printPaperBtn.focus();
+    }
+
+    function printResultsReport(mode = "print") {
+      if (!latestResults.length) {
+        setStatus("Run a quote first before printing the report.", "err");
+        return;
+      }
+      hidePrintChoice();
+      const iframe = document.createElement("iframe");
+      iframe.className = "print-frame";
+      iframe.setAttribute("title", "Freight quote printable report");
+      document.body.appendChild(iframe);
+
+      const iframeWindow = iframe.contentWindow;
+      const iframeDocument = iframeWindow?.document;
+      if (!iframeWindow || !iframeDocument) {
+        iframe.remove();
+        setStatus("Unable to prepare the report for printing.", "err");
+        return;
+      }
+
+      iframeDocument.open();
+      iframeDocument.write(buildPrintReportHtml(latestBatchId, latestResults));
+      iframeDocument.close();
+
+      const cleanup = () => {
+        window.setTimeout(() => iframe.remove(), 1000);
+      };
+
+      iframeWindow.addEventListener("afterprint", cleanup, { once: true });
+      window.setTimeout(cleanup, 60000);
+      iframeWindow.focus();
+      iframeWindow.print();
+
+      setStatus(
+        mode === "pdf"
+          ? "In the print dialog, choose Save as PDF as the destination."
+          : "",
+        "",
+      );
     }
 
     function profileRecordData(record) {
@@ -1971,23 +2669,78 @@
       return {};
     }
 
-    function updateProfileSummary(name = "") {
+    function profileTopQuotes(summary = {}) {
+      const topQuotes = Array.isArray(summary.top_quotes) ? summary.top_quotes : [];
+      if (topQuotes.length) {
+        return topQuotes.filter((quote) => quote && quote.carrier && quote.price !== undefined && quote.price !== null && quote.price !== "");
+      }
+      if (summary.carrier && summary.price !== undefined && summary.price !== null && summary.price !== "") {
+        return [summary];
+      }
+      return [];
+    }
+
+    function profileSummaryFromResults(payload = {}, results = []) {
+      const topQuotes = topCheapestQuotes(results, 3);
+      if (!topQuotes.length) return null;
+      const cheapest = topQuotes[0];
+      return {
+        carrier: cheapest.carrier || "",
+        price: cheapest.price,
+        transit_days: cheapest.transit_days,
+        source: cheapest.source || "",
+        top_quotes: topQuotes.map((quote) => ({
+          carrier: quote.carrier || "",
+          price: quote.price,
+          transit_days: quote.transit_days,
+          source: quote.source || "",
+        })),
+        quoted_at: todayIso(),
+        origin_zip: payload.origin_zip || "",
+        destination_zip: payload.destination_zip || "",
+        origin_city: payload.pickup_city || "",
+        destination_city: payload.delivery_city || "",
+        pallets: payload.pallet_count || "",
+        pieces: payload.pieces || "",
+        length: payload.length_in || "",
+        width: payload.width_in || "",
+        height: payload.height_in || "",
+        weight: payload.weight_lb || "",
+        freight_class: payload.freight_class || "",
+      };
+    }
+
+    function applyLatestProfileSummary(name = "", payload = {}, results = []) {
+      const cleanName = String(name || "").trim();
+      const summary = profileSummaryFromResults(payload, results);
+      if (!cleanName || !summary) return false;
+      const existing = profiles[cleanName] || {};
+      profiles[cleanName] = {
+        ...(existing && typeof existing === "object" ? existing : {}),
+        data: profileRecordData(existing),
+        last_quote_summary: summary,
+      };
+      updateProfileSummary(cleanName, summary);
+      return true;
+    }
+
+    function updateProfileSummary(name = "", summaryOverride = null) {
       const record = profiles[name];
-      const summary = profileRecordSummary(record);
-      if (!name || !summary || !summary.carrier || summary.price === undefined || summary.price === null || summary.price === "") {
+      const summary = summaryOverride || profileRecordSummary(record);
+      const topQuotes = profileTopQuotes(summary);
+      if (!name || !summary || !topQuotes.length) {
         profileSummaryEl.classList.remove("show");
         profileSummaryEl.innerHTML = "";
         return;
       }
-      const sourceText = summary.source && summary.source !== summary.carrier ? ` via ${summary.source}` : "";
       const lane = `${summary.origin_zip || "-"} to ${summary.destination_zip || "-"}`;
       const shipment = `${summary.pallets || "-"} pallet(s), ${summary.length || "-"} x ${summary.width || "-"} x ${summary.height || "-"}, ${summary.weight || "-"} lb, class ${summary.freight_class || "-"}`;
       profileSummaryEl.classList.add("show");
       profileSummaryEl.innerHTML = `
-        <div class="ps-top">Last quoted setup</div>
-        <div class="ps-main">${summary.carrier} was cheapest at ${formatPrice(summary.price)}${sourceText}</div>
-        <div class="ps-line">Lane: ${lane}</div>
-        <div class="ps-line">Shipment: ${shipment}</div>
+        ${topCheapestBannerMarkup(topQuotes)}
+        <div class="detail"><strong>Last quoted setup:</strong> ${escapeHtml(summary.quoted_at || "-")}</div>
+        <div class="detail">Lane: ${escapeHtml(lane)}</div>
+        <div class="detail">Shipment: ${escapeHtml(shipment)}</div>
       `;
     }
 
@@ -2010,13 +2763,17 @@
     function setRunningState(isRunning) {
       runBtn.disabled = isRunning;
       quoteTargetTriggerEl.disabled = isRunning;
-      saveBtn.disabled = isRunning;
+      browserVisibilityTriggerEl.disabled = isRunning;
       saveProfileBtn.disabled = isRunning;
       deleteProfileBtn.disabled = isRunning;
-      stopBtn.disabled = !isRunning;
       runLoaderEl.classList.toggle("show", isRunning);
+      runLoaderEl.setAttribute("aria-hidden", isRunning ? "false" : "true");
+      if (!isRunning) {
+        setLoaderMessage("Preparing quote run...");
+      }
       if (isRunning) {
         hideQuoteTargetDropdown();
+        hideBrowserVisibilityDropdown();
       }
     }
 
@@ -2172,6 +2929,10 @@
       return payload;
     }
 
+    function revealProcessEnabled(payload) {
+      return String(payload?.browser_visibility || "CONCEAL").toUpperCase() === "REVEAL";
+    }
+
     function assistantContextPayload() {
       let formData = {};
       try {
@@ -2300,16 +3061,17 @@
       resultListEl.innerHTML = "";
 
       const results = Array.isArray(data.results) ? data.results : [];
-      const cheapest = cheapestQuote(results);
-      if (cheapest) {
+      printResultsBtn.disabled = !results.length;
+      const topQuotes = topCheapestQuotes(results, 3);
+      if (topQuotes.length) {
         reportBannerEl.classList.add("show");
-        reportHeadlineEl.textContent = `${cheapest.carrier} is the cheapest at ${formatPrice(cheapest.price)}`;
-        reportDetailEl.textContent = `${cheapest.transit_days ?? "-"} day(s)${cheapest.service_level ? ` | ${cheapest.service_level}` : ""}${cheapest.time ? ` | ${cheapest.time}` : ""}${cheapest.source ? ` | Source: ${cheapest.source}` : ""}`;
-        reportLinkSlotEl.innerHTML = carrierLinkMarkup(cheapest.carrier);
+        reportHeadlineEl.textContent = topCheapestHeadline(topQuotes);
+        reportDetailEl.innerHTML = topCheapestDetailMarkup(topQuotes);
+        reportLinkSlotEl.innerHTML = "";
       } else {
         reportBannerEl.classList.remove("show");
         reportHeadlineEl.textContent = "-";
-        reportDetailEl.textContent = "-";
+        reportDetailEl.innerHTML = "-";
         reportLinkSlotEl.innerHTML = "";
       }
       for (const item of results) {
@@ -2435,6 +3197,7 @@
     }
 
     function showQuoteTargetDropdown() {
+      hideBrowserVisibilityDropdown();
       quoteTargetPickerEl.classList.add("open");
       quoteTargetDropdownEl.classList.add("show");
       quoteTargetTriggerEl.setAttribute("aria-expanded", "true");
@@ -2477,6 +3240,68 @@
         option.addEventListener("click", () => {
           setQuoteTarget(option.dataset.value || "ALL");
           hideQuoteTargetDropdown();
+        });
+      });
+    }
+
+    function selectedBrowserVisibility() {
+      return String(browserVisibilityEl.value || "CONCEAL");
+    }
+
+    function selectedBrowserVisibilityLabel() {
+      const selected = selectedBrowserVisibility();
+      const match = browserVisibilityOptions.find((item) => String(item.value || "") === selected);
+      return match?.label || "Do Not Reveal";
+    }
+
+    function syncBrowserVisibilityLabel() {
+      browserVisibilityLabelEl.textContent = selectedBrowserVisibilityLabel();
+    }
+
+    function hideBrowserVisibilityDropdown() {
+      browserVisibilityPickerEl.classList.remove("open");
+      browserVisibilityDropdownEl.classList.remove("show");
+      browserVisibilityTriggerEl.setAttribute("aria-expanded", "false");
+    }
+
+    function showBrowserVisibilityDropdown() {
+      hideQuoteTargetDropdown();
+      browserVisibilityPickerEl.classList.add("open");
+      browserVisibilityDropdownEl.classList.add("show");
+      browserVisibilityTriggerEl.setAttribute("aria-expanded", "true");
+    }
+
+    function setBrowserVisibility(value) {
+      const allowedValues = new Set(browserVisibilityOptions.map((item) => String(item.value || "")));
+      browserVisibilityEl.value = allowedValues.has(String(value || "")) ? String(value || "") : "CONCEAL";
+      syncBrowserVisibilityLabel();
+      renderBrowserVisibilityOptions();
+    }
+
+    function renderBrowserVisibilityOptions() {
+      const selected = selectedBrowserVisibility();
+      browserVisibilityDropdownEl.innerHTML = browserVisibilityOptions.map((item) => {
+        const value = String(item.value || "CONCEAL");
+        const isActive = value === selected;
+        const label = item.label || item.value || "Do Not Reveal";
+        return `
+          <button
+            type="button"
+            class="target-option${isActive ? " active" : ""}"
+            data-value="${escapeHtml(value)}"
+            role="option"
+            aria-selected="${isActive ? "true" : "false"}"
+          >
+            <span>${escapeHtml(label)}</span>
+            <span class="target-option-mark" aria-hidden="true">✓</span>
+          </button>
+        `;
+      }).join("");
+      syncBrowserVisibilityLabel();
+      browserVisibilityDropdownEl.querySelectorAll(".target-option").forEach((option) => {
+        option.addEventListener("click", () => {
+          setBrowserVisibility(option.dataset.value || "CONCEAL");
+          hideBrowserVisibilityDropdown();
         });
       });
     }
@@ -2558,9 +3383,11 @@
           });
           if (event.type === "status") {
             setStatus(event.message, "");
+            setLoaderMessage(event.message || "Quoting carriers and brokers...");
           } else if (event.type === "started") {
             currentRunId = event.run_id || "";
             latestBatchId = event.batch_id || latestBatchId;
+            setLoaderMessage("Quote run started. Press Esc to stop.");
             if (!context.appendMode) {
               applyResultState([], event.batch_id, { appendMode: false });
             } else {
@@ -2568,17 +3395,24 @@
             }
           } else if (event.type === "result") {
             applyResultState(event.results || [], event.batch_id, { appendMode: context.appendMode });
+            setLoaderMessage(currentCheapestLoaderMessage(latestResults, event.result?.carrier || ""));
             setStatus(`Quoted ${event.result?.carrier || "carrier"}. Waiting for the next carrier...`, "");
           } else if (event.type === "stopped") {
             applyResultState(event.results || [], event.batch_id, { appendMode: context.appendMode });
+            setLoaderMessage("Run stopped.");
             setStatus(event.message || "Run stopped.", "err");
             currentRunId = "";
           } else if (event.type === "complete") {
             applyResultState(event.results || [], event.batch_id, { appendMode: context.appendMode });
+            setLoaderMessage("Quote run complete.");
+            const completedPayload = context.payload || {};
+            const completedProfileName = completedPayload.company_name || profileSelectEl.value || profileNameEl.value || "";
             applyFormDefaults(event.reset_form);
             await loadProfiles();
-            updateProfileSummary(profileSelectEl.value || profileNameEl.value || "");
-            setStatus(event.message || "Quotes completed and written to Broker Result.", "ok");
+            if (!applyLatestProfileSummary(completedProfileName, completedPayload, latestResults)) {
+              updateProfileSummary(profileSelectEl.value || profileNameEl.value || "");
+            }
+            setStatus("", "");
             currentRunId = "";
           } else if (event.type === "error") {
             throw new Error(event.message || "Quote run failed");
@@ -2669,6 +3503,22 @@
       } catch {}
     }
 
+    async function requestStopRun() {
+      if (!currentRunId && !currentAbortController) {
+        return false;
+      }
+      if (currentRunId) {
+        try {
+          await postJson("/api/stop", { run_id: currentRunId });
+        } catch {}
+      } else if (currentAbortController) {
+        currentAbortController.abort();
+      }
+      setLoaderMessage("Stop requested. Waiting for the current carrier to finish...");
+      setStatus("Stop requested. The current carrier may finish, but the next carrier will not start.", "err");
+      return true;
+    }
+
     assistantLauncherEl.addEventListener("click", () => {
       setAssistantOpen(!assistantOpen);
     });
@@ -2687,6 +3537,16 @@
     });
 
     document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && (currentRunId || currentAbortController)) {
+        event.preventDefault();
+        requestStopRun();
+        return;
+      }
+      if (event.key === "Escape" && printChoiceBackdropEl.classList.contains("show")) {
+        event.preventDefault();
+        hidePrintChoice();
+        return;
+      }
       if (event.key === "Escape" && assistantOpen) {
         if (assistantHelpOpen) {
           setAssistantHelpOpen(false);
@@ -2798,21 +3658,6 @@
       }
     });
 
-    saveBtn.addEventListener("click", async () => {
-      setRunningState(true);
-      stopBtn.disabled = true;
-      setStatus("Saving inputs...", "");
-      try {
-        const data = await postJson("/api/input", formPayload());
-        setStatus("Inputs saved to Google Sheet.", "ok");
-        showResult(data);
-      } catch (err) {
-        setStatus(String(err), "err");
-      } finally {
-        setRunningState(false);
-      }
-    });
-
     saveProfileBtn.addEventListener("click", async () => {
       const companyName = (profileNameEl.value || "").trim();
       if (!companyName) {
@@ -2890,24 +3735,40 @@
         showQuoteTargetDropdown();
       }
     });
+    browserVisibilityTriggerEl.addEventListener("click", () => {
+      if (browserVisibilityTriggerEl.disabled) return;
+      if (browserVisibilityDropdownEl.classList.contains("show")) {
+        hideBrowserVisibilityDropdown();
+      } else {
+        showBrowserVisibilityDropdown();
+      }
+    });
     document.addEventListener("click", (event) => {
       if (!event.target.closest(".company-picker")) {
         hideProfileDropdown();
       }
       if (!event.target.closest(".run-target-picker")) {
         hideQuoteTargetDropdown();
+        hideBrowserVisibilityDropdown();
       }
     });
 
-    stopBtn.addEventListener("click", async () => {
-      if (currentRunId) {
-        try {
-          await postJson("/api/stop", { run_id: currentRunId });
-        } catch {}
-      } else if (currentAbortController) {
-        currentAbortController.abort();
+    printResultsBtn.addEventListener("click", () => {
+      showPrintChoice();
+    });
+    printPaperBtn.addEventListener("click", () => {
+      printResultsReport("print");
+    });
+    printPdfBtn.addEventListener("click", () => {
+      printResultsReport("pdf");
+    });
+    printCancelBtn.addEventListener("click", () => {
+      hidePrintChoice();
+    });
+    printChoiceBackdropEl.addEventListener("click", (event) => {
+      if (event.target === printChoiceBackdropEl) {
+        hidePrintChoice();
       }
-      setStatus("Stop requested. The current carrier may finish, but the next carrier will not start.", "err");
     });
 
     form.addEventListener("submit", async (event) => {
@@ -2915,10 +3776,19 @@
       const payload = formPayload();
       const runContext = prepareRunContext(payload);
       setRunningState(true);
+      setLoaderMessage("Preparing quote run... Press Esc to stop.");
       setStatus(
         runContext.appendMode
-          ? "Running selected target. Matching results will be added to the current load."
-          : "Running carriers. Results will appear one by one as each quote finishes...",
+          ? (
+              revealProcessEnabled(payload)
+                ? "Running selected target with the browser visible. Matching results will be added to the current load."
+                : "Running selected target. Matching results will be added to the current load."
+            )
+          : (
+              revealProcessEnabled(payload)
+                ? "Running carriers with the browser visible. Results will appear one by one as each quote finishes..."
+                : "Running carriers. Results will appear one by one as each quote finishes..."
+            ),
         "",
       );
       try {
@@ -2954,6 +3824,7 @@
 
     loadProfiles();
     loadNetworkInfo();
+    renderBrowserVisibilityOptions();
     renderPalletEditor();
     updateClassEstimate();
     renderAssistantMessages();
