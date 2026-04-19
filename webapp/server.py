@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import base64
 from datetime import date
 from uuid import uuid4
@@ -137,13 +136,12 @@ def local_mdns_hostname() -> str:
 app = FastAPI(title="Freight Quote Agent Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 RUN_CANCEL_FLAGS: dict[str, bool] = {}
+QUOTE_RUN_LOCK = asyncio.Lock()
 WEBAPP_ENABLE_GLT = False
 WEBAPP_GLT_HEADLESS = True
 WEBAPP_GLT_SLOW_MO = 0
 WEBAPP_GLT_ONLY_DEBUG = False
 WEBAPP_REVEAL_SLOW_MO = int((os.getenv("WEBAPP_REVEAL_SLOW_MO") or "250").strip() or "250")
-INITIAL_PARALLEL_WORKERS = 3
-DIRECT_PARALLEL_WORKERS = 2
 RESULT_DISPLAY_ORDER = [
     "GLT",
     "SCHNEIDER",
@@ -724,35 +722,11 @@ def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict, *, headless:
         }
 
 
-def run_jobs_limited(jobs: list[tuple[str, callable]], *, max_workers: int, should_stop=None):
-    if not jobs:
-        return
-
-    worker_count = max(1, min(max_workers, len(jobs)))
-    with ThreadPoolExecutor(max_workers=worker_count) as executor:
-        job_iter = iter(jobs)
-        in_flight: dict = {}
-
-        def submit_next():
-            if should_stop and should_stop():
-                return False
-            try:
-                job_name, job_fn = next(job_iter)
-            except StopIteration:
-                return False
-            in_flight[executor.submit(job_fn)] = job_name
-            return True
-
-        for _ in range(worker_count):
-            if not submit_next():
-                break
-
-        while in_flight:
-            done, _ = wait(list(in_flight.keys()), return_when=FIRST_COMPLETED)
-            for future in done:
-                job_name = in_flight.pop(future)
-                yield job_name, future.result()
-                submit_next()
+async def run_jobs_sequentially(jobs: list[tuple[str, callable]], *, should_stop=None):
+    for job_name, job_fn in jobs:
+        if should_stop and should_stop():
+            return
+        yield job_name, await asyncio.to_thread(job_fn)
 
 
 def carrier_queue():
@@ -1249,148 +1223,16 @@ def stop_run(payload: StopPayload):
 
 
 @app.post("/api/run")
-def run_quote(payload: InputPayload):
+async def run_quote(payload: InputPayload):
     try:
-        ss = spreadsheet()
-        write_input_values(spreadsheet_worksheet(ss, INPUT_TAB), payload)
+        async with QUOTE_RUN_LOCK:
+            ss = await asyncio.to_thread(spreadsheet)
+            ws = await asyncio.to_thread(spreadsheet_worksheet, ss, INPUT_TAB)
+            await asyncio.to_thread(write_input_values, ws, payload)
 
-        broker_result = write_brokers(spreadsheet=ss)
-        if not broker_result["ok"]:
-            raise HTTPException(status_code=400, detail=broker_result["message"])
-
-        quote_data = payload_to_quote_data(payload)
-        quote_target = normalized_quote_target(payload.quote_target)
-        browser_options = quote_browser_options(payload)
-        run_all_targets = quote_target == "ALL"
-        result_map: dict[str, dict] = {}
-        covered_direct_carriers = set()
-        direct_carriers = carrier_queue()
-
-        initial_jobs = []
-        if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
-            initial_jobs.append(
-                (
-                    "GLT",
-                    lambda quote_data=quote_data, browser_options=browser_options: run_glt_job(quote_data, **browser_options),
-                )
-            )
-        if not WEBAPP_GLT_ONLY_DEBUG:
-            if run_all_targets or quote_target == "SCHNEIDER":
-                initial_jobs.append(
-                    (
-                        "SCHNEIDER",
-                        lambda quote_data=quote_data, browser_options=browser_options: run_schneider_job(quote_data, **browser_options),
-                    )
-                )
-            if run_all_targets or quote_target == "MYCARRIER":
-                initial_jobs.append(
-                    (
-                        "MYCARRIER",
-                        lambda quote_data=quote_data, browser_options=browser_options: run_mycarrier_job(quote_data, **browser_options),
-                    )
-                )
-
-        for _, job_result in run_jobs_limited(initial_jobs, max_workers=INITIAL_PARALLEL_WORKERS):
-            upsert_result(result_map, job_result["wrapped"])
-            covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
-
-        selected_direct_target = None if run_all_targets else quote_target
-        if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
-            queued_direct = []
-            for carrier_name, fn in direct_carriers:
-                if selected_direct_target and carrier_name != selected_direct_target:
-                    continue
-                if run_all_targets and carrier_name in covered_direct_carriers:
-                    upsert_result(
-                        result_map,
-                        skipped_result(
-                            carrier_name,
-                            quote_data,
-                            RuntimeError("Covered by MyCarrier results."),
-                        ),
-                    )
-                    continue
-                if fn is None:
-                    upsert_result(
-                        result_map,
-                        skipped_result(
-                            carrier_name,
-                            quote_data,
-                            RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
-                        ),
-                    )
-                    continue
-                queued_direct.append(
-                    (
-                        carrier_name,
-                        lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
-                            carrier_name,
-                            fn,
-                            quote_data,
-                            **browser_options,
-                        ),
-                    )
-                )
-
-            for _, job_result in run_jobs_limited(queued_direct, max_workers=DIRECT_PARALLEL_WORKERS):
-                if job_result.get("direct_result") is not None:
-                    write_direct_result(ss, job_result["carrier"], job_result["direct_result"], quote_data)
-                upsert_result(result_map, job_result["wrapped"])
-
-            for carrier_name, fn in direct_carriers:
-                if selected_direct_target and carrier_name != selected_direct_target:
-                    continue
-                existing_result = result_map.get(carrier_name)
-                if not existing_result or not should_retry_skipped_result(existing_result):
-                    continue
-                if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
-                    continue
-                retried_job = run_direct_carrier_job(carrier_name, fn, quote_data, **browser_options)
-                if retried_job.get("direct_result") is not None:
-                    write_direct_result(ss, carrier_name, retried_job["direct_result"], quote_data)
-                retried_result = retried_job["wrapped"]
-                if should_retry_skipped_result(retried_result):
-                    retried_result = mark_retry_exhausted(retried_result)
-                else:
-                    retried_result["retry_attempted"] = True
-                upsert_result(result_map, retried_result)
-
-        results = ordered_results(result_map)
-
-        update_profile_last_quote(payload.company_name, results, profile_input_data_from_payload(payload))
-        append_quote_log(ss, payload, results)
-
-        return {
-            "ok": True,
-            "message": "Input saved, broker rows prepared, carrier quotes written, and Top 3 results logged. Latest input values were kept in the Input sheet.",
-            "batch_id": broker_result["batch_id"],
-            "broker_rows_written": broker_result["row_count"],
-            "results": results,
-            "reset_form": payload_to_sheet_values(payload),
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-def stream_line(payload: dict):
-    return json.dumps(payload) + "\n"
-
-
-@app.post("/api/run-stream")
-def run_quote_stream(payload: InputPayload):
-    def event_stream():
-        run_id = str(uuid4())
-        try:
-            ss = spreadsheet()
-            yield stream_line({"type": "status", "message": "Writing inputs to Google Sheet..."})
-            write_input_values(spreadsheet_worksheet(ss, INPUT_TAB), payload)
-
-            broker_result = write_brokers(spreadsheet=ss)
+            broker_result = await asyncio.to_thread(write_brokers, spreadsheet=ss)
             if not broker_result["ok"]:
-                yield stream_line({"type": "error", "message": broker_result["message"]})
-                return
+                raise HTTPException(status_code=400, detail=broker_result["message"])
 
             quote_data = payload_to_quote_data(payload)
             quote_target = normalized_quote_target(payload.quote_target)
@@ -1399,14 +1241,6 @@ def run_quote_stream(payload: InputPayload):
             result_map: dict[str, dict] = {}
             covered_direct_carriers = set()
             direct_carriers = carrier_queue()
-            yield stream_line(
-                {
-                    "type": "started",
-                    "run_id": run_id,
-                    "batch_id": broker_result["batch_id"],
-                    "broker_rows_written": broker_result["row_count"],
-                }
-            )
 
             initial_jobs = []
             if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
@@ -1432,75 +1266,37 @@ def run_quote_stream(payload: InputPayload):
                         )
                     )
 
-            if initial_jobs:
-                yield stream_line({"type": "status", "message": "Quoting broker portals in parallel..."})
-            for _, job_result in run_jobs_limited(initial_jobs, max_workers=INITIAL_PARALLEL_WORKERS):
+            async for _, job_result in run_jobs_sequentially(initial_jobs):
                 upsert_result(result_map, job_result["wrapped"])
                 covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
-                results = ordered_results(result_map)
-                yield stream_line(
-                    {
-                        "type": "result",
-                        "run_id": run_id,
-                        "batch_id": broker_result["batch_id"],
-                        "result": job_result["wrapped"],
-                        "results": results,
-                    }
-                )
 
             selected_direct_target = None if run_all_targets else quote_target
             if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
-                if RUN_CANCEL_FLAGS.get(run_id):
-                    yield stream_line(
-                        {
-                            "type": "stopped",
-                            "run_id": run_id,
-                            "message": "Run stopped before starting direct carriers.",
-                            "batch_id": broker_result["batch_id"],
-                            "results": ordered_results(result_map),
-                        }
-                    )
-                    return
-
-                direct_jobs = []
+                queued_direct = []
                 for carrier_name, fn in direct_carriers:
                     if selected_direct_target and carrier_name != selected_direct_target:
                         continue
                     if run_all_targets and carrier_name in covered_direct_carriers:
-                        wrapped = skipped_result(
-                            carrier_name,
-                            quote_data,
-                            RuntimeError("Covered by MyCarrier results."),
-                        )
-                        upsert_result(result_map, wrapped)
-                        yield stream_line(
-                            {
-                                "type": "result",
-                                "run_id": run_id,
-                                "batch_id": broker_result["batch_id"],
-                                "result": wrapped,
-                                "results": ordered_results(result_map),
-                            }
+                        upsert_result(
+                            result_map,
+                            skipped_result(
+                                carrier_name,
+                                quote_data,
+                                RuntimeError("Covered by MyCarrier results."),
+                            ),
                         )
                         continue
                     if fn is None:
-                        wrapped = skipped_result(
-                            carrier_name,
-                            quote_data,
-                            RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
-                        )
-                        upsert_result(result_map, wrapped)
-                        yield stream_line(
-                            {
-                                "type": "result",
-                                "run_id": run_id,
-                                "batch_id": broker_result["batch_id"],
-                                "result": wrapped,
-                                "results": ordered_results(result_map),
-                            }
+                        upsert_result(
+                            result_map,
+                            skipped_result(
+                                carrier_name,
+                                quote_data,
+                                RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
+                            ),
                         )
                         continue
-                    direct_jobs.append(
+                    queued_direct.append(
                         (
                             carrier_name,
                             lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
@@ -1512,16 +1308,113 @@ def run_quote_stream(payload: InputPayload):
                         )
                     )
 
-                if direct_jobs:
-                    yield stream_line({"type": "status", "message": "Quoting direct carriers with limited parallelism..."})
-                for _, job_result in run_jobs_limited(
-                    direct_jobs,
-                    max_workers=DIRECT_PARALLEL_WORKERS,
-                    should_stop=lambda: RUN_CANCEL_FLAGS.get(run_id, False),
-                ):
+                async for _, job_result in run_jobs_sequentially(queued_direct):
                     if job_result.get("direct_result") is not None:
-                        write_direct_result(ss, job_result["carrier"], job_result["direct_result"], quote_data)
+                        await asyncio.to_thread(write_direct_result, ss, job_result["carrier"], job_result["direct_result"], quote_data)
                     upsert_result(result_map, job_result["wrapped"])
+
+                for carrier_name, fn in direct_carriers:
+                    if selected_direct_target and carrier_name != selected_direct_target:
+                        continue
+                    existing_result = result_map.get(carrier_name)
+                    if not existing_result or not should_retry_skipped_result(existing_result):
+                        continue
+                    if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
+                        continue
+                    retried_job = await asyncio.to_thread(run_direct_carrier_job, carrier_name, fn, quote_data, **browser_options)
+                    if retried_job.get("direct_result") is not None:
+                        await asyncio.to_thread(write_direct_result, ss, carrier_name, retried_job["direct_result"], quote_data)
+                    retried_result = retried_job["wrapped"]
+                    if should_retry_skipped_result(retried_result):
+                        retried_result = mark_retry_exhausted(retried_result)
+                    else:
+                        retried_result["retry_attempted"] = True
+                    upsert_result(result_map, retried_result)
+
+            results = ordered_results(result_map)
+
+            await asyncio.to_thread(update_profile_last_quote, payload.company_name, results, profile_input_data_from_payload(payload))
+            await asyncio.to_thread(append_quote_log, ss, payload, results)
+
+            return {
+                "ok": True,
+                "message": "Input saved, broker rows prepared, carrier quotes written, and Top 3 results logged. Latest input values were kept in the Input sheet.",
+                "batch_id": broker_result["batch_id"],
+                "broker_rows_written": broker_result["row_count"],
+                "results": results,
+                "reset_form": payload_to_sheet_values(payload),
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def stream_line(payload: dict):
+    return json.dumps(payload) + "\n"
+
+
+@app.post("/api/run-stream")
+async def run_quote_stream(payload: InputPayload):
+    async def event_stream():
+        run_id = str(uuid4())
+        try:
+            async with QUOTE_RUN_LOCK:
+                ss = await asyncio.to_thread(spreadsheet)
+                yield stream_line({"type": "status", "message": "Writing inputs to Google Sheet..."})
+                ws = await asyncio.to_thread(spreadsheet_worksheet, ss, INPUT_TAB)
+                await asyncio.to_thread(write_input_values, ws, payload)
+
+                broker_result = await asyncio.to_thread(write_brokers, spreadsheet=ss)
+                if not broker_result["ok"]:
+                    yield stream_line({"type": "error", "message": broker_result["message"]})
+                    return
+
+                quote_data = payload_to_quote_data(payload)
+                quote_target = normalized_quote_target(payload.quote_target)
+                browser_options = quote_browser_options(payload)
+                run_all_targets = quote_target == "ALL"
+                result_map: dict[str, dict] = {}
+                covered_direct_carriers = set()
+                direct_carriers = carrier_queue()
+                yield stream_line(
+                    {
+                        "type": "started",
+                        "run_id": run_id,
+                        "batch_id": broker_result["batch_id"],
+                        "broker_rows_written": broker_result["row_count"],
+                    }
+                )
+
+                initial_jobs = []
+                if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
+                    initial_jobs.append(
+                        (
+                            "GLT",
+                            lambda quote_data=quote_data, browser_options=browser_options: run_glt_job(quote_data, **browser_options),
+                        )
+                    )
+                if not WEBAPP_GLT_ONLY_DEBUG:
+                    if run_all_targets or quote_target == "SCHNEIDER":
+                        initial_jobs.append(
+                            (
+                                "SCHNEIDER",
+                                lambda quote_data=quote_data, browser_options=browser_options: run_schneider_job(quote_data, **browser_options),
+                            )
+                        )
+                    if run_all_targets or quote_target == "MYCARRIER":
+                        initial_jobs.append(
+                            (
+                                "MYCARRIER",
+                                lambda quote_data=quote_data, browser_options=browser_options: run_mycarrier_job(quote_data, **browser_options),
+                            )
+                        )
+
+                if initial_jobs:
+                    yield stream_line({"type": "status", "message": "Quoting broker portals one at a time..."})
+                async for _, job_result in run_jobs_sequentially(initial_jobs):
+                    upsert_result(result_map, job_result["wrapped"])
+                    covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
                     results = ordered_results(result_map)
                     yield stream_line(
                         {
@@ -1533,67 +1426,151 @@ def run_quote_stream(payload: InputPayload):
                         }
                     )
 
-                if RUN_CANCEL_FLAGS.get(run_id):
-                    yield stream_line(
-                        {
-                            "type": "stopped",
-                            "run_id": run_id,
-                            "message": "Run stopped before retrying skipped carriers.",
-                            "batch_id": broker_result["batch_id"],
-                            "results": ordered_results(result_map),
-                        }
-                    )
-                    return
+                selected_direct_target = None if run_all_targets else quote_target
+                if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
+                    if RUN_CANCEL_FLAGS.get(run_id):
+                        yield stream_line(
+                            {
+                                "type": "stopped",
+                                "run_id": run_id,
+                                "message": "Run stopped before starting direct carriers.",
+                                "batch_id": broker_result["batch_id"],
+                                "results": ordered_results(result_map),
+                            }
+                        )
+                        return
 
-                for carrier_name, fn in direct_carriers:
-                    if selected_direct_target and carrier_name != selected_direct_target:
-                        continue
-                    existing_result = result_map.get(carrier_name)
-                    if not existing_result or not should_retry_skipped_result(existing_result):
-                        continue
-                    if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
-                        continue
-                    yield stream_line(
-                        {
-                            "type": "status",
-                            "message": f"Retrying {carrier_name} after full carrier pass...",
-                        }
-                    )
-                    retried_job = run_direct_carrier_job(carrier_name, fn, quote_data, **browser_options)
-                    if retried_job.get("direct_result") is not None:
-                        write_direct_result(ss, carrier_name, retried_job["direct_result"], quote_data)
-                    retried_result = retried_job["wrapped"]
-                    if should_retry_skipped_result(retried_result):
-                        retried_result = mark_retry_exhausted(retried_result)
-                    else:
-                        retried_result["retry_attempted"] = True
-                    upsert_result(result_map, retried_result)
-                    results = ordered_results(result_map)
-                    yield stream_line(
-                        {
-                            "type": "result",
-                            "run_id": run_id,
-                            "batch_id": broker_result["batch_id"],
-                            "result": retried_result,
-                            "results": results,
-                        }
-                    )
+                    direct_jobs = []
+                    for carrier_name, fn in direct_carriers:
+                        if selected_direct_target and carrier_name != selected_direct_target:
+                            continue
+                        if run_all_targets and carrier_name in covered_direct_carriers:
+                            wrapped = skipped_result(
+                                carrier_name,
+                                quote_data,
+                                RuntimeError("Covered by MyCarrier results."),
+                            )
+                            upsert_result(result_map, wrapped)
+                            yield stream_line(
+                                {
+                                    "type": "result",
+                                    "run_id": run_id,
+                                    "batch_id": broker_result["batch_id"],
+                                    "result": wrapped,
+                                    "results": ordered_results(result_map),
+                                }
+                            )
+                            continue
+                        if fn is None:
+                            wrapped = skipped_result(
+                                carrier_name,
+                                quote_data,
+                                RuntimeError(f"Carrier unavailable: {CENTRAL_IMPORT_ERROR or 'missing quote_central export'}"),
+                            )
+                            upsert_result(result_map, wrapped)
+                            yield stream_line(
+                                {
+                                    "type": "result",
+                                    "run_id": run_id,
+                                    "batch_id": broker_result["batch_id"],
+                                    "result": wrapped,
+                                    "results": ordered_results(result_map),
+                                }
+                            )
+                            continue
+                        direct_jobs.append(
+                            (
+                                carrier_name,
+                                lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
+                                    carrier_name,
+                                    fn,
+                                    quote_data,
+                                    **browser_options,
+                                ),
+                            )
+                        )
 
-            results = ordered_results(result_map)
-            update_profile_last_quote(payload.company_name, results, profile_input_data_from_payload(payload))
-            yield stream_line({"type": "status", "message": "Writing Top 3 results to LOGS..."})
-            append_quote_log(ss, payload, results)
-            yield stream_line(
-                {
-                    "type": "complete",
-                    "run_id": run_id,
-                    "message": "Quotes completed, written to Broker Result, and logged to LOGS. Latest input values were kept in the Input sheet.",
-                    "batch_id": broker_result["batch_id"],
-                    "broker_rows_written": broker_result["row_count"],
-                    "results": results,
-                    "reset_form": payload_to_sheet_values(payload),
-                }
-            )
+                    if direct_jobs:
+                        yield stream_line({"type": "status", "message": "Quoting direct carriers one at a time..."})
+                    async for _, job_result in run_jobs_sequentially(
+                        direct_jobs,
+                        should_stop=lambda: RUN_CANCEL_FLAGS.get(run_id, False),
+                    ):
+                        if job_result.get("direct_result") is not None:
+                            await asyncio.to_thread(write_direct_result, ss, job_result["carrier"], job_result["direct_result"], quote_data)
+                        upsert_result(result_map, job_result["wrapped"])
+                        results = ordered_results(result_map)
+                        yield stream_line(
+                            {
+                                "type": "result",
+                                "run_id": run_id,
+                                "batch_id": broker_result["batch_id"],
+                                "result": job_result["wrapped"],
+                                "results": results,
+                            }
+                        )
+
+                    if RUN_CANCEL_FLAGS.get(run_id):
+                        yield stream_line(
+                            {
+                                "type": "stopped",
+                                "run_id": run_id,
+                                "message": "Run stopped before retrying skipped carriers.",
+                                "batch_id": broker_result["batch_id"],
+                                "results": ordered_results(result_map),
+                            }
+                        )
+                        return
+
+                    for carrier_name, fn in direct_carriers:
+                        if selected_direct_target and carrier_name != selected_direct_target:
+                            continue
+                        existing_result = result_map.get(carrier_name)
+                        if not existing_result or not should_retry_skipped_result(existing_result):
+                            continue
+                        if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
+                            continue
+                        yield stream_line(
+                            {
+                                "type": "status",
+                                "message": f"Retrying {carrier_name} after full carrier pass...",
+                            }
+                        )
+                        retried_job = await asyncio.to_thread(run_direct_carrier_job, carrier_name, fn, quote_data, **browser_options)
+                        if retried_job.get("direct_result") is not None:
+                            await asyncio.to_thread(write_direct_result, ss, carrier_name, retried_job["direct_result"], quote_data)
+                        retried_result = retried_job["wrapped"]
+                        if should_retry_skipped_result(retried_result):
+                            retried_result = mark_retry_exhausted(retried_result)
+                        else:
+                            retried_result["retry_attempted"] = True
+                        upsert_result(result_map, retried_result)
+                        results = ordered_results(result_map)
+                        yield stream_line(
+                            {
+                                "type": "result",
+                                "run_id": run_id,
+                                "batch_id": broker_result["batch_id"],
+                                "result": retried_result,
+                                "results": results,
+                            }
+                        )
+
+                results = ordered_results(result_map)
+                await asyncio.to_thread(update_profile_last_quote, payload.company_name, results, profile_input_data_from_payload(payload))
+                yield stream_line({"type": "status", "message": "Writing Top 3 results to LOGS..."})
+                await asyncio.to_thread(append_quote_log, ss, payload, results)
+                yield stream_line(
+                    {
+                        "type": "complete",
+                        "run_id": run_id,
+                        "message": "Quotes completed, written to Broker Result, and logged to LOGS. Latest input values were kept in the Input sheet.",
+                        "batch_id": broker_result["batch_id"],
+                        "broker_rows_written": broker_result["row_count"],
+                        "results": results,
+                        "reset_form": payload_to_sheet_values(payload),
+                    }
+                )
         except (BrokenPipeError, ConnectionResetError, asyncio.CancelledError, GeneratorExit):
             return
         except Exception as exc:
