@@ -40,7 +40,7 @@ except ImportError as exc:
 from quote_mycarrier import quote_mycarrier
 from quote_numark import quote_numark
 from quote_glt import quote_glt
-from quote_schneider import quote_schneider
+from quote_schneider import quote_schneider, quote_schneider_async
 from quote_tforce import quote_tforce
 from quote_total import quote_total, write_result
 from sheets_utils import with_gsheets_retry
@@ -687,6 +687,24 @@ def run_schneider_job(quote_data: dict, *, headless: bool = True, slow_mo: int =
         }
 
 
+async def run_schneider_job_async(quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
+    try:
+        raw_schneider_results = await quote_schneider_async(quote_data, headless=headless, slow_mo=slow_mo)
+        wrapped_schneider = wrap_schneider_results(raw_schneider_results, quote_data)
+        return {
+            "carrier": "SCHNEIDER",
+            "wrapped": wrapped_schneider,
+            "covered_direct_carriers": set(),
+        }
+    except Exception as exc:
+        print(f"SCHNEIDER quote failed: {exc}", flush=True)
+        return {
+            "carrier": "SCHNEIDER",
+            "wrapped": skipped_result("SCHNEIDER", quote_data, exc),
+            "covered_direct_carriers": set(),
+        }
+
+
 def run_mycarrier_job(quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
     try:
         raw_mycarrier_results = quote_mycarrier(quote_data, headless=headless, slow_mo=slow_mo)
@@ -726,7 +744,21 @@ async def run_jobs_sequentially(jobs: list[tuple[str, callable]], *, should_stop
     for job_name, job_fn in jobs:
         if should_stop and should_stop():
             return
-        yield job_name, await asyncio.to_thread(job_fn)
+        yield job_name, await job_fn()
+
+
+def thread_job(fn, *args, **kwargs):
+    async def job():
+        return await asyncio.to_thread(fn, *args, **kwargs)
+
+    return job
+
+
+def coroutine_job(fn, *args, **kwargs):
+    async def job():
+        return await fn(*args, **kwargs)
+
+    return job
 
 
 def carrier_queue():
@@ -1247,7 +1279,7 @@ async def run_quote(payload: InputPayload):
                 initial_jobs.append(
                     (
                         "GLT",
-                        lambda quote_data=quote_data, browser_options=browser_options: run_glt_job(quote_data, **browser_options),
+                        thread_job(run_glt_job, quote_data, **browser_options),
                     )
                 )
             if not WEBAPP_GLT_ONLY_DEBUG:
@@ -1255,14 +1287,14 @@ async def run_quote(payload: InputPayload):
                     initial_jobs.append(
                         (
                             "SCHNEIDER",
-                            lambda quote_data=quote_data, browser_options=browser_options: run_schneider_job(quote_data, **browser_options),
+                            coroutine_job(run_schneider_job_async, quote_data, **browser_options),
                         )
                     )
                 if run_all_targets or quote_target == "MYCARRIER":
                     initial_jobs.append(
                         (
                             "MYCARRIER",
-                            lambda quote_data=quote_data, browser_options=browser_options: run_mycarrier_job(quote_data, **browser_options),
+                            thread_job(run_mycarrier_job, quote_data, **browser_options),
                         )
                     )
 
@@ -1299,12 +1331,7 @@ async def run_quote(payload: InputPayload):
                     queued_direct.append(
                         (
                             carrier_name,
-                            lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
-                                carrier_name,
-                                fn,
-                                quote_data,
-                                **browser_options,
-                            ),
+                            thread_job(run_direct_carrier_job, carrier_name, fn, quote_data, **browser_options),
                         )
                     )
 
@@ -1391,7 +1418,7 @@ async def run_quote_stream(payload: InputPayload):
                     initial_jobs.append(
                         (
                             "GLT",
-                            lambda quote_data=quote_data, browser_options=browser_options: run_glt_job(quote_data, **browser_options),
+                            thread_job(run_glt_job, quote_data, **browser_options),
                         )
                     )
                 if not WEBAPP_GLT_ONLY_DEBUG:
@@ -1399,14 +1426,14 @@ async def run_quote_stream(payload: InputPayload):
                         initial_jobs.append(
                             (
                                 "SCHNEIDER",
-                                lambda quote_data=quote_data, browser_options=browser_options: run_schneider_job(quote_data, **browser_options),
+                                coroutine_job(run_schneider_job_async, quote_data, **browser_options),
                             )
                         )
                     if run_all_targets or quote_target == "MYCARRIER":
                         initial_jobs.append(
                             (
                                 "MYCARRIER",
-                                lambda quote_data=quote_data, browser_options=browser_options: run_mycarrier_job(quote_data, **browser_options),
+                                thread_job(run_mycarrier_job, quote_data, **browser_options),
                             )
                         )
 
@@ -1481,12 +1508,7 @@ async def run_quote_stream(payload: InputPayload):
                         direct_jobs.append(
                             (
                                 carrier_name,
-                                lambda carrier_name=carrier_name, fn=fn, quote_data=quote_data, browser_options=browser_options: run_direct_carrier_job(
-                                    carrier_name,
-                                    fn,
-                                    quote_data,
-                                    **browser_options,
-                                ),
+                                thread_job(run_direct_carrier_job, carrier_name, fn, quote_data, **browser_options),
                             )
                         )
 
