@@ -23,6 +23,8 @@ tforce_*.png
 mycarrier_*.png
 *_failed.png
 *_missing.png
+*_missing.html
+*_not_found.png
 
 # Local quote debug artifacts
 after_submit.png
