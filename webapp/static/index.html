@@ -371,6 +371,10 @@
       border: 1px solid var(--line);
     }
 
+    .tracking-update-btn {
+      white-space: nowrap;
+    }
+
     .danger {
       background: #9d1c1c;
       color: white;
@@ -1577,6 +1581,7 @@
             <div class="share-help">Share one of these links with colleagues on the same Wi-Fi network.</div>
           </div>
         </div>
+        <button class="secondary tracking-update-btn" id="update-tracking-btn" type="button">Update Tracking ETA</button>
       </div>
 
       <form id="quote-form" autocomplete="off">
@@ -1818,6 +1823,7 @@
     const browserVisibilityTriggerEl = document.getElementById("browser-visibility-trigger");
     const browserVisibilityLabelEl = document.getElementById("browser-visibility-label");
     const browserVisibilityDropdownEl = document.getElementById("browser-visibility-dropdown");
+    const updateTrackingBtn = document.getElementById("update-tracking-btn");
     const saveProfileBtn = document.getElementById("save-profile-btn");
     const deleteProfileBtn = document.getElementById("delete-profile-btn");
     const statusEl = document.getElementById("status");
@@ -2764,6 +2770,7 @@
       runBtn.disabled = isRunning;
       quoteTargetTriggerEl.disabled = isRunning;
       browserVisibilityTriggerEl.disabled = isRunning;
+      updateTrackingBtn.disabled = isRunning;
       saveProfileBtn.disabled = isRunning;
       deleteProfileBtn.disabled = isRunning;
       runLoaderEl.classList.toggle("show", isRunning);
@@ -3703,6 +3710,34 @@
         setStatus(String(err), "err");
       } finally {
         deleteProfileBtn.disabled = false;
+      }
+    });
+
+    updateTrackingBtn.addEventListener("click", async () => {
+      updateTrackingBtn.disabled = true;
+      setStatus("Updating TRACKING tab ETA/actual dates. UPS and Estes may take a moment...", "");
+      try {
+        const data = await postJson("/api/update-tracking", {});
+        const parts = [
+          `checked ${data.checked || 0}`,
+          `ETA ${data.updated_eta || 0}`,
+          `actual ${data.updated_actual || 0}`,
+        ];
+        if (data.browser_checked) {
+          parts.push(`browser ${data.browser_checked}`);
+        }
+        if (data.skipped_recent) {
+          parts.push(`skipped recent ${data.skipped_recent}`);
+        }
+        if (Array.isArray(data.errors) && data.errors.length) {
+          setStatus(`Tracking update finished with notes: ${parts.join(", ")}. First issue: ${data.errors[0]}`, "err");
+        } else {
+          setStatus(`Tracking update complete: ${parts.join(", ")}.`, "ok");
+        }
+      } catch (err) {
+        setStatus(String(err), "err");
+      } finally {
+        updateTrackingBtn.disabled = false;
       }
     });
 

@@ -1,5 +1,6 @@
 .DS_Store
 .env
+.tracking_check_cache.json
 .venv/
 .vscode/
 __pycache__/

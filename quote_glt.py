@@ -590,7 +590,8 @@ def fill_location_input(locator, zip_code: str, page, preferred_city: str = ""):
     for _ in range(3):
         type_location_zip(locator, page, zip_code)
         try:
-            current_locator = locator.page.locator(f"#{locator.evaluate('(el) => el.closest(\".autocomplete\")?.id || \"\"')} input[name='localValue']").first
+            autocomplete_id = locator.evaluate('(el) => el.closest(".autocomplete")?.id || ""')
+            current_locator = locator.page.locator(f"#{autocomplete_id} input[name='localValue']").first
         except Exception:
             current_locator = locator
         try:

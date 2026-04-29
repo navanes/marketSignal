@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 import asyncio
 import base64
 from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from html import unescape
 from uuid import uuid4
 import json
 import os
@@ -9,12 +14,16 @@ import re
 import socket
 import sys
 from typing import Optional
+from urllib.parse import quote
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 STATIC_DIR = BASE_DIR / "static"
 SERVICE_ACCOUNT_FILE = PROJECT_ROOT / "service_account.json"
 PROFILES_FILE = PROJECT_ROOT / "company_profiles.json"
+TRACKING_CACHE_FILE = PROJECT_ROOT / ".tracking_check_cache.json"
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -54,6 +63,7 @@ SCOPES = [
 SHEET_NAME = "Freight Quote Agent (MVP)"
 INPUT_TAB = "Input"
 LOGS_TAB = "LOGS"
+TRACKING_TAB = "TRACKING"
 LOGS_HEADERS = [
     "Date",
     "Customer",
@@ -172,6 +182,12 @@ Rules:
 - If context includes recent quote results, use them.
 """
 
+TRACKING_YELLOW = {"red": 1.0, "green": 0.949, "blue": 0.8}
+TRACKING_GREEN = {"red": 0.851, "green": 0.918, "blue": 0.827}
+TRACKING_CHECK_COOLDOWN = timedelta(hours=2)
+TRACKING_CHECKED_PATTERN = re.compile(r"\(checked\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\)", re.I)
+TRACKING_CACHE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 
 def gs_client():
     creds = Credentials.from_service_account_file(str(SERVICE_ACCOUNT_FILE), scopes=SCOPES)
@@ -229,6 +245,462 @@ def profile_input_data_from_payload(payload: "InputPayload") -> dict:
     return payload.model_dump(exclude={"quote_target", "browser_visibility"})
 
 
+def fetch_text(url: str, *, encoding: str = "utf-8", timeout: int = 30) -> str:
+    request = UrlRequest(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urlopen(request, timeout=timeout) as response:
+        raw = response.read()
+    return raw.decode(encoding, errors="ignore")
+
+
+def clean_tracking_text(value: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", value or "")
+    text = unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_us_date(value: str) -> Optional[date]:
+    text = (value or "").strip()
+    match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", text)
+    if not match:
+        return None
+    month, day, year = (int(part) for part in match.groups())
+    return date(year, month, day)
+
+
+def parse_compact_date(value: str) -> Optional[date]:
+    text = (value or "").strip()
+    if not re.fullmatch(r"\d{8}", text):
+        return None
+    return date(int(text[:4]), int(text[4:6]), int(text[6:8]))
+
+
+def parse_month_day(value: str) -> Optional[date]:
+    text = value or ""
+    if re.search(r"\btoday\b", text, re.I):
+        return date.today()
+    if re.search(r"\btomorrow\b", text, re.I):
+        return date.today() + timedelta(days=1)
+
+    match = re.search(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\b",
+        text,
+        re.I,
+    )
+    if not match:
+        return None
+    month_names = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    }
+    today = date.today()
+    parsed = date(today.year, month_names[match.group(1).lower()], int(match.group(2)))
+    if parsed < today - timedelta(days=30):
+        parsed = date(today.year + 1, parsed.month, parsed.day)
+    return parsed
+
+
+def parse_ups_date_from_text(text: str, label: str) -> Optional[date]:
+    match = re.search(rf"{label}\s+([\s\S]{{0,180}})", text or "", re.I)
+    if not match:
+        return None
+
+    snippet = match.group(1)
+    stop_match = re.search(
+        r"\n(?:Your package|Ship To|Label Created|We Have Your Package|On the Way|Out for Delivery|Delivery|Track Another Package)\b",
+        snippet,
+        re.I,
+    )
+    if stop_match:
+        snippet = snippet[: stop_match.start()]
+
+    return parse_month_day(snippet)
+
+
+def parse_first_us_date_near_label(text: str, label: str, *, pick_last: bool = False, window: int = 300) -> Optional[date]:
+    match = re.search(label, text or "", re.I)
+    if not match:
+        return None
+    snippet = (text or "")[match.end() : match.end() + window]
+    dates = re.findall(r"\d{1,2}/\d{1,2}/\d{4}", snippet)
+    if not dates:
+        return None
+    return parse_us_date(dates[-1] if pick_last else dates[0])
+
+
+def parse_estes_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    actual = None
+    eta = None
+
+    actual = parse_first_us_date_near_label(content, r"Actual Delivery Date")
+    if not actual:
+        actual = parse_first_us_date_near_label(content, r"\bDelivered\b")
+
+    eta = parse_first_us_date_near_label(content, r"Estimated Delivery Date")
+    if not eta:
+        eta = parse_first_us_date_near_label(content, r"Appointment Date")
+    if not eta:
+        eta = parse_first_us_date_near_label(content, r"Estimated Delivery", pick_last=True)
+
+    if not eta and not actual:
+        row_match = re.search(
+            r"(\d{6,})\s+(\d{1,2}/\d{1,2}/\d{4})\s+\S+\s+(\d{1,2}/\d{1,2}/\d{4})\s+(Delivered|In Transit|Picked Up|Out for Delivery)",
+            content,
+            re.I,
+        )
+        if row_match:
+            eta = parse_us_date(row_match.group(3))
+
+    status_match = re.search(r"\b(Delivered|In Transit|Picked Up|Out for Delivery)\b", content, re.I)
+    status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    return eta, actual, status
+
+
+def sheet_date(value: date | None) -> str:
+    if not value:
+        return ""
+    return f"{value.month}/{value.day}/{value.year}"
+
+
+def column_letter(index_one_based: int) -> str:
+    result = ""
+    index = index_one_based
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        result = chr(65 + remainder) + result
+    return result
+
+
+def sheets_formula_string(value: str) -> str:
+    return str(value or "").replace('"', '""')
+
+
+def hyperlink_formula(label: str, url: str) -> str:
+    return f'=HYPERLINK("{sheets_formula_string(url)}","{sheets_formula_string(label)}")'
+
+
+def update_agent_update_cell(ws, row_number: int, agent_update_col: int, note: str, url: str = ""):
+    cell = f"{column_letter(agent_update_col + 1)}{row_number}"
+    value = hyperlink_formula(note, url) if url else note
+    with_gsheets_retry(lambda: ws.update(cell, [[value]], value_input_option="USER_ENTERED"))
+
+
+def tracking_checked_stamp(now: Optional[datetime] = None) -> str:
+    return (now or datetime.now()).strftime("%Y-%m-%d %H:%M")
+
+
+def with_tracking_checked_stamp(note: str, now: Optional[datetime] = None) -> str:
+    base = TRACKING_CHECKED_PATTERN.sub("", note or "").strip()
+    base = re.sub(r"\s{2,}", " ", base).strip()
+    return f"{base} (checked {tracking_checked_stamp(now)})" if base else f"Checked (checked {tracking_checked_stamp(now)})"
+
+
+def last_tracking_checked_at(note: str) -> Optional[datetime]:
+    match = TRACKING_CHECKED_PATTERN.search(note or "")
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+def tracking_checked_recently(note: str, now: Optional[datetime] = None) -> bool:
+    checked_at = last_tracking_checked_at(note)
+    if not checked_at:
+        return False
+    current = now or datetime.now()
+    return timedelta(0) <= current - checked_at < TRACKING_CHECK_COOLDOWN
+
+
+def tracking_cache_key(carrier: str, tracking: str) -> str:
+    cleaned_tracking = re.sub(r"\s+", "", tracking or "").upper()
+    return f"{normalize_carrier(carrier)}::{cleaned_tracking}"
+
+
+def load_tracking_check_cache() -> dict[str, str]:
+    if not TRACKING_CACHE_FILE.exists():
+        return {}
+    try:
+        data = json.loads(TRACKING_CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_tracking_check_cache(cache: dict[str, str]):
+    try:
+        TRACKING_CACHE_FILE.write_text(json.dumps(cache, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def cache_checked_at(cache: dict[str, str], carrier: str, tracking: str) -> Optional[datetime]:
+    value = str(cache.get(tracking_cache_key(carrier, tracking)) or "").strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, TRACKING_CACHE_TIME_FORMAT)
+    except ValueError:
+        return None
+
+
+def cached_tracking_checked_recently(cache: dict[str, str], carrier: str, tracking: str, now: Optional[datetime] = None) -> bool:
+    checked_at = cache_checked_at(cache, carrier, tracking)
+    if not checked_at:
+        return False
+    current = now or datetime.now()
+    return timedelta(0) <= current - checked_at < TRACKING_CHECK_COOLDOWN
+
+
+def remember_tracking_checked(cache: dict[str, str], carrier: str, tracking: str, now: Optional[datetime] = None):
+    cache[tracking_cache_key(carrier, tracking)] = (now or datetime.now()).strftime(TRACKING_CACHE_TIME_FORMAT)
+
+
+def tracking_note_with_link(carrier: str, note: str, tracking: str) -> tuple[str, str]:
+    url = tracking_url(carrier, tracking)
+    if not url:
+        return note, ""
+    return f"{note} | Open {normalize_carrier(carrier)}", url
+
+
+def clean_agent_update_label(note: str) -> str:
+    label = re.sub(r"\s*\|\s*https?://\S+", "", note or "", flags=re.I)
+    label = re.sub(r"\s*https?://\S+", "", label, flags=re.I)
+    return label.strip(" |") or "Open tracking"
+
+
+def tracking_url(carrier: str, tracking: str) -> str:
+    normalized = normalize_carrier(carrier)
+    encoded = quote(tracking)
+    if normalized == "UPS":
+        return f"https://www.ups.com/track?loc=en_US&tracknum={encoded}&requester=ST/trackdetails"
+    if normalized == "ESTES":
+        return f"https://www.estes-express.com/myestes/shipment-tracking/?query={encoded}&type=PRO"
+    if normalized == "R&L":
+        return f"https://www2.rlcarriers.com/freight/shipping/shipment-tracing?pro={encoded}&docType=PRO&source=web"
+    if normalized == "GOLD EAGLE TRANSPORTATION":
+        return "https://my.dtitrans.com/shipmenttracking"
+    if normalized == "NUMARK":
+        return f"http://tracking.numarktransportation.net/cgibin/wbprotrk?wbfb={encoded}&wbscac="
+    return ""
+
+
+def normalize_carrier(value: str) -> str:
+    carrier = re.sub(r"\s+", " ", (value or "").strip().upper())
+    if carrier in {"R&L", "R+L", "R L", "RL CARRIERS", "R AND L"}:
+        return "R&L"
+    if carrier in {"UPS"}:
+        return "UPS"
+    if carrier in {"ESTES"}:
+        return "ESTES"
+    if carrier in {"NUMARK"}:
+        return "NUMARK"
+    if carrier == "GOLD EAGLE TRANSPORTATION":
+        return "GOLD EAGLE TRANSPORTATION"
+    return carrier
+
+
+def get_numark_tracking(pro: str) -> dict:
+    html = fetch_text(tracking_url("NUMARK", pro), encoding="iso-8859-1")
+    if re.search(r"Bill not found", html, re.I):
+        return {"eta": None, "actual": None, "note": "Numark: Bill not found"}
+
+    actual = None
+    eta = None
+    latest = ""
+    for row in re.findall(r'<TR[^>]*bgcolor="#EAEADF"[^>]*>([\s\S]*?)</TR>', html, flags=re.I):
+        cells = [clean_tracking_text(cell) for cell in re.findall(r"<TD[^>]*>[\s\S]*?<font[^>]*>([\s\S]*?)</font>", row, flags=re.I)]
+        if len(cells) < 3:
+            continue
+        status = cells[1]
+        row_date = parse_compact_date(cells[2])
+        if not row_date:
+            continue
+        latest = f"{status} {sheet_date(row_date)}"
+        if re.search(r"DELIVERED", status, re.I):
+            actual = row_date
+        elif not actual and re.search(r"OUT FOR DELVRY|OUT FOR DELIVERY", status, re.I):
+            eta = row_date
+    return {"eta": eta, "actual": actual, "note": f"Numark: {latest}" if latest else "Numark: tracking found"}
+
+
+def get_rl_tracking(pro: str) -> dict:
+    html = fetch_text(tracking_url("R&L", pro))
+    text = clean_tracking_text(html)
+    status_match = re.search(r'st-shipment__hd-status[^>]*>([\s\S]*?)</p>', html, re.I)
+    status = clean_tracking_text(status_match.group(1)) if status_match else ""
+    eta_match = re.search(r"estimated due date of\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.I)
+    eta = parse_us_date(eta_match.group(1)) if eta_match else None
+    actual = None
+    delivered_match = re.search(r"delivered(?:\s+on)?\s+(\d{1,2}/\d{1,2}/\d{4})", text, re.I)
+    if re.search(r"delivered", status, re.I) and delivered_match:
+        actual = parse_us_date(delivered_match.group(1))
+    note_date = actual or eta
+    note_status = status or ("Delivered" if actual else "In Transit" if eta else "tracking found")
+    return {"eta": eta, "actual": actual, "note": f"R&L: {note_status} {sheet_date(note_date)}".strip()}
+
+
+def get_dti_tracking(load_number: str) -> dict:
+    url = f"https://my.dtitrans.com/api/home/tracking?type=0&trackingnumbers={quote(load_number)}"
+    data = json.loads(fetch_text(url))
+    if not data:
+        return {"eta": None, "actual": None, "note": "DTI: tracking not found"}
+    shipment = data[0]
+    eta = parse_us_date(str(shipment.get("deliveryDate") or ""))
+    actual = parse_us_date(str(shipment.get("deliverStatusDate") or shipment.get("deliveryDate") or "")) if shipment.get("isDelivered") else None
+    status = str(shipment.get("status") or "tracking found")
+    note_date = actual or eta
+    return {"eta": eta, "actual": actual, "note": f"DTI: {status} {sheet_date(note_date)}".strip()}
+
+
+def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
+    if not rows:
+        return {}
+    from playwright.sync_api import sync_playwright
+
+    headless = (os.getenv("TRACKING_BROWSER_HEADLESS") or "false").strip().lower() in {"1", "true", "yes"}
+    updates: dict[int, dict] = {}
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        page = browser.new_page()
+        for row in rows:
+            carrier = row["carrier"]
+            tracking = row["tracking"]
+            try:
+                page.goto(tracking_url(carrier, tracking), wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(6000)
+                text = page.locator("body").inner_text(timeout=10000)
+                if carrier == "UPS":
+                    if "Estimated delivery" not in text and page.locator("input").count() > 0:
+                        try:
+                            page.locator("input").first.fill(tracking, timeout=5000)
+                            page.keyboard.press("Enter")
+                            page.wait_for_timeout(8000)
+                            text = page.locator("body").inner_text(timeout=10000)
+                        except Exception:
+                            pass
+                    eta = None
+                    actual = None
+                    actual = parse_ups_date_from_text(text, r"Delivered(?:\s+On)?")
+                    eta = parse_ups_date_from_text(text, r"Estimated delivery")
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "note": f"UPS: {'Delivered' if actual else 'ETA' if eta else 'tracking'} {sheet_date(actual or eta)}".strip(),
+                    }
+                elif carrier == "ESTES":
+                    try:
+                        criteria = page.locator(
+                            "#criteria, textarea[name='criteria'], textarea[aria-label*='tracking' i], textarea"
+                        ).first
+                        criteria.scroll_into_view_if_needed(timeout=5000)
+                        if not (criteria.input_value(timeout=5000) or "").strip():
+                            page.goto(tracking_url(carrier, tracking), wait_until="domcontentloaded", timeout=60000)
+                            page.wait_for_timeout(3000)
+                    except Exception:
+                        pass
+
+                    clicked_search = False
+                    for selector in (
+                        "#shipmentTrackingSubmitButton",
+                        "button:has-text('SEARCH')",
+                        "input[type='submit']",
+                    ):
+                        button = None
+                        try:
+                            button = page.locator(selector).first
+                            if button.count() > 0:
+                                button.scroll_into_view_if_needed(timeout=5000)
+                                button.click(timeout=5000)
+                                clicked_search = True
+                                break
+                        except Exception:
+                            if button is not None:
+                                try:
+                                    button.click(timeout=5000, force=True)
+                                    clicked_search = True
+                                    break
+                                except Exception:
+                                    pass
+
+                    if not clicked_search:
+                        try:
+                            button = page.locator("#shipmentTrackingSubmitButton").first
+                            box = button.bounding_box(timeout=5000)
+                            if box:
+                                page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                                clicked_search = True
+                        except Exception:
+                            pass
+
+                    if not clicked_search:
+                        try:
+                            clicked_search = bool(
+                                page.evaluate(
+                                    """() => {
+                                        const elements = Array.from(document.querySelectorAll("button,input[type='submit'],a"));
+                                        const target = elements.find((el) => /search/i.test(
+                                            el.innerText || el.value || el.getAttribute("aria-label") || ""
+                                        ));
+                                        if (!target) return false;
+                                        target.click();
+                                        return true;
+                                    }"""
+                                )
+                            )
+                        except Exception:
+                            pass
+
+                    if not clicked_search:
+                        try:
+                            page.keyboard.press("Enter")
+                        except Exception:
+                            pass
+
+                    try:
+                        page.wait_for_function(
+                            """() => /Tracking Results/i.test(document.body.innerText || "")
+                                && /\b(In Transit|Delivered|Picked Up|Out for Delivery)\b/i.test(document.body.innerText || "")""",
+                            timeout=15000,
+                        )
+                    except Exception:
+                        page.wait_for_timeout(8000)
+                    text = page.locator("body").inner_text(timeout=10000)
+                    eta, actual, status = parse_estes_tracking_text(text)
+                    if not eta and not actual:
+                        try:
+                            page.locator("button:has-text('Expand All')").first.click(timeout=5000)
+                            page.wait_for_timeout(2000)
+                        except Exception:
+                            try:
+                                page.locator("mat-icon, .mat-icon, button, [role='button']").last.click(timeout=5000)
+                                page.wait_for_timeout(2000)
+                            except Exception:
+                                pass
+                        text = page.locator("body").inner_text(timeout=10000)
+                        eta, actual, status = parse_estes_tracking_text(text)
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "note": f"Estes: {status} {sheet_date(actual or eta)}".strip(),
+                    }
+            except Exception as exc:
+                updates[row["row_number"]] = {"eta": None, "actual": None, "note": f"{carrier}: {exc}"}
+        browser.close()
+    return updates
+
+
 class PalletItem(BaseModel):
     pallet_number: int
     pieces: int = Field(default=1)
@@ -284,7 +756,7 @@ def assistant_client():
     return OpenAI(api_key=api_key)
 
 
-def safe_json_load(text: str | None, fallback):
+def safe_json_load(text: Optional[str], fallback):
     if not text:
         return fallback
     try:
@@ -647,7 +1119,7 @@ def write_direct_result(ss, carrier_name: str, result: dict, quote_data: dict):
     )
 
 
-def run_glt_job(quote_data: dict, *, headless: bool | None = None, slow_mo: int | None = None):
+def run_glt_job(quote_data: dict, *, headless: Optional[bool] = None, slow_mo: Optional[int] = None):
     try:
         raw_glt_results = quote_glt(
             quote_data,
@@ -791,7 +1263,7 @@ def available_quote_targets() -> list[dict[str, str]]:
     return targets
 
 
-def normalized_quote_target(value: str | None) -> str:
+def normalized_quote_target(value: Optional[str]) -> str:
     raw = str(value or "ALL").strip().upper() or "ALL"
     allowed = {item["value"] for item in available_quote_targets()}
     if raw not in allowed:
@@ -799,7 +1271,7 @@ def normalized_quote_target(value: str | None) -> str:
     return raw
 
 
-def normalized_browser_visibility(value: str | None) -> str:
+def normalized_browser_visibility(value: Optional[str]) -> str:
     raw = str(value or "CONCEAL").strip().upper() or "CONCEAL"
     allowed = {"CONCEAL", "REVEAL"}
     if raw not in allowed:
@@ -1159,7 +1631,7 @@ async def assistant_reply(
     message: str = Form(default=""),
     history: str = Form(default="[]"),
     context: str = Form(default="{}"),
-    screenshot: UploadFile | None = File(default=None),
+    screenshot: Optional[UploadFile] = File(default=None),
 ):
     user_message = str(message or "").strip()
     if not user_message and screenshot is None:
@@ -1252,6 +1724,189 @@ class StopPayload(BaseModel):
 def stop_run(payload: StopPayload):
     RUN_CANCEL_FLAGS[payload.run_id] = True
     return {"ok": True, "stopped": payload.run_id}
+
+
+def tracking_header_indexes(headers: list[str]) -> dict[str, int]:
+    normalized = [str(header or "").strip().upper() for header in headers]
+    required = {
+        "eta": "ETA",
+        "actual": "ACTUAL",
+        "carrier": "CARRIER",
+        "tracking": "TRACKING #",
+        "agent_update": "AGENT UPDATE",
+    }
+    indexes: dict[str, int] = {}
+    for key, header in required.items():
+        try:
+            indexes[key] = normalized.index(header)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"TRACKING tab is missing header: {header}") from exc
+    return indexes
+
+
+def row_value(row: list[str], index: int) -> str:
+    return str(row[index]).strip() if index < len(row) else ""
+
+
+def apply_tracking_row_color(ws, row_number: int, delivered: bool):
+    color = TRACKING_GREEN if delivered else TRACKING_YELLOW
+    with_gsheets_retry(lambda: ws.format(f"A{row_number}:H{row_number}", {"backgroundColor": color}))
+
+
+def update_tracking_sheet() -> dict:
+    ss = spreadsheet()
+    try:
+        ws = spreadsheet_worksheet(ss, TRACKING_TAB)
+    except WorksheetNotFound as exc:
+        raise HTTPException(status_code=404, detail="Could not find TRACKING tab") from exc
+
+    rows = with_gsheets_retry(ws.get_all_values)
+    if not rows:
+        raise HTTPException(status_code=400, detail="TRACKING tab is empty")
+
+    indexes = tracking_header_indexes(rows[0])
+    checked = 0
+    updated_eta = 0
+    updated_actual = 0
+    updated_notes = 0
+    skipped_recent = 0
+    errors: list[str] = []
+    browser_rows: list[dict] = []
+    browser_row_limit = int((os.getenv("TRACKING_BROWSER_ROW_LIMIT") or "100").strip() or "100")
+    now = datetime.now()
+    tracking_cache = load_tracking_check_cache()
+
+    for offset, row in enumerate(rows[1:], start=2):
+        carrier = normalize_carrier(row_value(row, indexes["carrier"]))
+        tracking = row_value(row, indexes["tracking"])
+        eta_existing = row_value(row, indexes["eta"])
+        actual_existing = row_value(row, indexes["actual"])
+
+        if not tracking:
+            continue
+
+        agent_update_existing = row_value(row, indexes["agent_update"])
+        if re.search(r"https?://", agent_update_existing, re.I):
+            url = tracking_url(carrier, tracking)
+            if url:
+                update_agent_update_cell(
+                    ws,
+                    offset,
+                    indexes["agent_update"],
+                    clean_agent_update_label(agent_update_existing),
+                    url,
+                )
+                updated_notes += 1
+
+        if actual_existing:
+            apply_tracking_row_color(ws, offset, True)
+            continue
+        apply_tracking_row_color(ws, offset, False)
+
+        if tracking_checked_recently(agent_update_existing, now) or cached_tracking_checked_recently(tracking_cache, carrier, tracking, now):
+            skipped_recent += 1
+            continue
+
+        if carrier == "UPS" and agent_update_existing:
+            remember_tracking_checked(tracking_cache, carrier, tracking, now)
+            existing_note = clean_agent_update_label(agent_update_existing)
+            note, url = tracking_note_with_link(carrier, existing_note, tracking)
+            update_agent_update_cell(ws, offset, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
+            save_tracking_check_cache(tracking_cache)
+            updated_notes += 1
+            skipped_recent += 1
+            continue
+
+        result: Optional[dict] = None
+        try:
+            if carrier == "NUMARK" and (not eta_existing or not actual_existing):
+                result = get_numark_tracking(tracking)
+                remember_tracking_checked(tracking_cache, carrier, tracking, now)
+            elif carrier == "R&L" and (not eta_existing or not actual_existing):
+                result = get_rl_tracking(tracking)
+                remember_tracking_checked(tracking_cache, carrier, tracking, now)
+            elif carrier == "GOLD EAGLE TRANSPORTATION" and (not eta_existing or not actual_existing):
+                result = get_dti_tracking(tracking)
+                remember_tracking_checked(tracking_cache, carrier, tracking, now)
+            elif carrier in {"UPS", "ESTES"}:
+                if (not eta_existing or not actual_existing) and len(browser_rows) < browser_row_limit:
+                    remember_tracking_checked(tracking_cache, carrier, tracking, now)
+                    browser_rows.append({"row_number": offset, "carrier": carrier, "tracking": tracking})
+                    existing_note = clean_agent_update_label(agent_update_existing) if agent_update_existing else f"{carrier}: tracking"
+                    note, url = tracking_note_with_link(carrier, existing_note, tracking)
+                    update_agent_update_cell(ws, offset, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
+                    updated_notes += 1
+                    save_tracking_check_cache(tracking_cache)
+                continue
+        except Exception as exc:
+            remember_tracking_checked(tracking_cache, carrier, tracking, now)
+            save_tracking_check_cache(tracking_cache)
+            note = with_tracking_checked_stamp(f"{carrier}: {exc}", now)
+            update_agent_update_cell(ws, offset, indexes["agent_update"], note)
+            errors.append(f"Row {offset}: {note}")
+            continue
+
+        if result is None:
+            continue
+
+        checked += 1
+        if not eta_existing and result.get("eta"):
+            with_gsheets_retry(lambda r=offset, v=sheet_date(result["eta"]): ws.update_cell(r, indexes["eta"] + 1, v))
+            eta_existing = sheet_date(result["eta"])
+            updated_eta += 1
+        if not actual_existing and result.get("actual"):
+            with_gsheets_retry(lambda r=offset, v=sheet_date(result["actual"]): ws.update_cell(r, indexes["actual"] + 1, v))
+            actual_existing = sheet_date(result["actual"])
+            updated_actual += 1
+        if result.get("note"):
+            note, url = tracking_note_with_link(carrier, result["note"], tracking)
+            update_agent_update_cell(ws, offset, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
+            updated_notes += 1
+        apply_tracking_row_color(ws, offset, bool(actual_existing))
+        save_tracking_check_cache(tracking_cache)
+
+    if browser_rows:
+        browser_results = browser_tracking_updates(browser_rows)
+        for row_number, result in browser_results.items():
+            current_row = rows[row_number - 1] if row_number - 1 < len(rows) else []
+            eta_existing = row_value(current_row, indexes["eta"])
+            actual_existing = row_value(current_row, indexes["actual"])
+            carrier = row_value(current_row, indexes["carrier"])
+            tracking = row_value(current_row, indexes["tracking"])
+            if not eta_existing and result.get("eta"):
+                with_gsheets_retry(lambda r=row_number, v=sheet_date(result["eta"]): ws.update_cell(r, indexes["eta"] + 1, v))
+                eta_existing = sheet_date(result["eta"])
+                updated_eta += 1
+            if not actual_existing and result.get("actual"):
+                with_gsheets_retry(lambda r=row_number, v=sheet_date(result["actual"]): ws.update_cell(r, indexes["actual"] + 1, v))
+                actual_existing = sheet_date(result["actual"])
+                updated_actual += 1
+            note = result.get("note") or f"{carrier} tracking"
+            note, url = tracking_note_with_link(carrier, note, tracking)
+            update_agent_update_cell(ws, row_number, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
+            updated_notes += 1
+            apply_tracking_row_color(ws, row_number, bool(actual_existing))
+
+    return {
+        "ok": True,
+        "checked": checked + len(browser_rows),
+        "updated_eta": updated_eta,
+        "updated_actual": updated_actual,
+        "updated_notes": updated_notes,
+        "skipped_recent": skipped_recent,
+        "browser_checked": len(browser_rows),
+        "errors": errors[:10],
+    }
+
+
+@app.post("/api/update-tracking")
+async def update_tracking():
+    try:
+        return await asyncio.to_thread(update_tracking_sheet)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/run")
