@@ -3717,7 +3717,7 @@
       updateTrackingBtn.disabled = true;
       setStatus("Updating TRACKING tab ETA/actual dates. UPS and Estes may take a moment...", "");
       try {
-        const data = await postJson("/api/update-tracking", {});
+        const data = await postJson("/api/update-tracking", { force_recent: true });
         const parts = [
           `checked ${data.checked || 0}`,
           `ETA ${data.updated_eta || 0}`,
@@ -3728,6 +3728,9 @@
         }
         if (data.skipped_recent) {
           parts.push(`skipped recent ${data.skipped_recent}`);
+        }
+        if (data.logged) {
+          parts.push(`logged ${data.logged}`);
         }
         if (Array.isArray(data.errors) && data.errors.length) {
           setStatus(`Tracking update finished with notes: ${parts.join(", ")}. First issue: ${data.errors[0]}`, "err");

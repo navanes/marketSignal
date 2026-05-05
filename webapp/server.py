@@ -64,6 +64,7 @@ SHEET_NAME = "Freight Quote Agent (MVP)"
 INPUT_TAB = "Input"
 LOGS_TAB = "LOGS"
 TRACKING_TAB = "TRACKING"
+TRACKING_LOG_TAB = "TRACKING LOG"
 LOGS_HEADERS = [
     "Date",
     "Customer",
@@ -147,6 +148,7 @@ app = FastAPI(title="Freight Quote Agent Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 RUN_CANCEL_FLAGS: dict[str, bool] = {}
 QUOTE_RUN_LOCK = asyncio.Lock()
+TRACKING_UPDATE_LOCK = asyncio.Lock()
 WEBAPP_ENABLE_GLT = False
 WEBAPP_GLT_HEADLESS = True
 WEBAPP_GLT_SLOW_MO = 0
@@ -187,6 +189,18 @@ TRACKING_GREEN = {"red": 0.851, "green": 0.918, "blue": 0.827}
 TRACKING_CHECK_COOLDOWN = timedelta(hours=2)
 TRACKING_CHECKED_PATTERN = re.compile(r"\(checked\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\)", re.I)
 TRACKING_CACHE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+TRACKING_LOG_HEADERS = [
+    "Checked At",
+    "Result",
+    "Row #",
+    "Carrier",
+    "Tracking #",
+    "Old ETA",
+    "New ETA",
+    "Old Actual",
+    "New Actual",
+    "Note",
+]
 
 
 def gs_client():
@@ -264,6 +278,19 @@ def parse_us_date(value: str) -> Optional[date]:
     if not match:
         return None
     month, day, year = (int(part) for part in match.groups())
+    return date(year, month, day)
+
+
+def parse_us_date_flexible(value: str) -> Optional[date]:
+    text = (value or "").strip()
+    match = re.search(r"(\d{1,2})/(\d{1,2})/(\d{2,4})", text)
+    if not match:
+        return None
+    month = int(match.group(1))
+    day = int(match.group(2))
+    year = int(match.group(3))
+    if year < 100:
+        year += 2000
     return date(year, month, day)
 
 
@@ -366,10 +393,78 @@ def parse_estes_tracking_text(text: str) -> tuple[Optional[date], Optional[date]
     return eta, actual, status
 
 
+def parse_tforce_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    actual = None
+    eta = parse_first_us_date_near_label(content, r"Estimated Delivery", window=180)
+    if not eta:
+        eta = parse_us_date_flexible(content)
+
+    delivered_match = re.search(r"\bDelivered\b[\s\S]{0,180}?(\d{1,2}/\d{1,2}/\d{2,4})", content, re.I)
+    if delivered_match:
+        actual = parse_us_date_flexible(delivered_match.group(1))
+
+    status_match = re.search(r"\b(Delivered|In Transit|Picked Up|Out for Delivery)\b", content, re.I)
+    status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    return eta, actual, status
+
+
+def parse_xpo_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    actual = None
+    eta = None
+
+    eta = parse_first_us_date_near_label(content, r"Est\.?\s*Delivery", window=160) or parse_first_us_date_near_label(
+        content,
+        r"Estimated Delivery",
+        window=160,
+    )
+    if not eta:
+        eta_match = re.search(r"\bEst\.?\s*Delivery\s+(\d{1,2}/\d{1,2}/\d{2,4})", content, re.I)
+        if eta_match:
+            eta = parse_us_date_flexible(eta_match.group(1))
+
+    delivered_match = re.search(r"\bDelivered\b[\s\S]{0,180}?(\d{1,2}/\d{1,2}/\d{2,4})", content, re.I)
+    if delivered_match:
+        actual = parse_us_date_flexible(delivered_match.group(1))
+
+    status_match = re.search(r"\b(Delivered|In Transit|Picked Up|At Final Service Center|Out for Delivery)\b", content, re.I)
+    status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    return eta, actual, status
+
+
+def parse_total_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    status_match = re.search(r"\bStatus:\s*([^\n\r]+)", content, re.I)
+    status = clean_tracking_text(status_match.group(1)).rstrip(".") if status_match else ""
+
+    eta = parse_first_us_date_near_label(content, r"Estimated Delivery Date", window=120)
+    actual = None
+    if re.search(r"\bdelivered\b", status, re.I):
+        actual = parse_first_us_date_near_label(content, r"\bDelivered\b", window=220)
+        if not actual:
+            actual = parse_first_us_date_near_label(content, r"\bStatus:\s*Delivered\b", window=220)
+
+    if not status:
+        status_match = re.search(
+            r"\b(PICKUP COMPLETED|Pickup Requested|Picked Up|In Transit|Out for Delivery|Delivered)\b",
+            content,
+            re.I,
+        )
+        status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    return eta, actual, status
+
+
 def sheet_date(value: date | None) -> str:
     if not value:
         return ""
     return f"{value.month}/{value.day}/{value.year}"
+
+
+def tracking_log_value(value) -> str:
+    if isinstance(value, date):
+        return sheet_date(value)
+    return str(value or "").strip()
 
 
 def column_letter(index_one_based: int) -> str:
@@ -393,6 +488,53 @@ def update_agent_update_cell(ws, row_number: int, agent_update_col: int, note: s
     cell = f"{column_letter(agent_update_col + 1)}{row_number}"
     value = hyperlink_formula(note, url) if url else note
     with_gsheets_retry(lambda: ws.update(cell, [[value]], value_input_option="USER_ENTERED"))
+
+
+def tracking_log_sheet(ss):
+    try:
+        log_ws = spreadsheet_worksheet(ss, TRACKING_LOG_TAB)
+    except WorksheetNotFound:
+        log_ws = with_gsheets_retry(lambda: ss.add_worksheet(title=TRACKING_LOG_TAB, rows=1000, cols=len(TRACKING_LOG_HEADERS)))
+
+    values = with_gsheets_retry(lambda: log_ws.get_all_values())
+    if not values or [str(value or "").strip() for value in values[0][: len(TRACKING_LOG_HEADERS)]] != TRACKING_LOG_HEADERS:
+        with_gsheets_retry(lambda: log_ws.update("A1:J1", [TRACKING_LOG_HEADERS]))
+        with_gsheets_retry(lambda: log_ws.format("A1:J1", {"textFormat": {"bold": True}}))
+        with_gsheets_retry(lambda: log_ws.freeze(rows=1))
+    return log_ws
+
+
+def append_tracking_log_rows(ss, rows: list[list[str]]):
+    if not rows:
+        return
+    log_ws = tracking_log_sheet(ss)
+    with_gsheets_retry(lambda: log_ws.append_rows(rows, value_input_option="USER_ENTERED"))
+
+
+def tracking_log_row(
+    checked_at: datetime,
+    result: str,
+    row_number: int,
+    carrier: str,
+    tracking: str,
+    old_eta: str = "",
+    new_eta: str = "",
+    old_actual: str = "",
+    new_actual: str = "",
+    note: str = "",
+) -> list[str]:
+    return [
+        checked_at.strftime("%Y-%m-%d %H:%M:%S"),
+        result,
+        str(row_number),
+        carrier,
+        tracking,
+        tracking_log_value(old_eta),
+        tracking_log_value(new_eta),
+        tracking_log_value(old_actual),
+        tracking_log_value(new_actual),
+        clean_agent_update_label(note),
+    ]
 
 
 def tracking_checked_stamp(now: Optional[datetime] = None) -> str:
@@ -487,6 +629,12 @@ def tracking_url(carrier: str, tracking: str) -> str:
         return f"https://www.ups.com/track?loc=en_US&tracknum={encoded}&requester=ST/trackdetails"
     if normalized == "ESTES":
         return f"https://www.estes-express.com/myestes/shipment-tracking/?query={encoded}&type=PRO"
+    if normalized == "TFORCE":
+        return f"https://www.tforcefreight.com/ltl/apps/Tracking?proNumbers={encoded}%3B"
+    if normalized == "XPO":
+        return f"https://ext-web.ltl-xpo.com/public-app/shipments?referenceNumber={encoded}"
+    if normalized == "TOTAL":
+        return "http://tracking.carrierlogistics.com/scripts/tot.pol/facts"
     if normalized == "R&L":
         return f"https://www2.rlcarriers.com/freight/shipping/shipment-tracing?pro={encoded}&docType=PRO&source=web"
     if normalized == "GOLD EAGLE TRANSPORTATION":
@@ -504,9 +652,15 @@ def normalize_carrier(value: str) -> str:
         return "UPS"
     if carrier in {"ESTES"}:
         return "ESTES"
+    if carrier in {"TFORCE", "T FORCE", "TFORCE FREIGHT", "T FORCE FREIGHT", "TFORCE FREIGHT INC"}:
+        return "TFORCE"
+    if carrier in {"XPO", "XPO LTL", "XPO LOGISTICS"}:
+        return "XPO"
+    if carrier in {"TOTAL", "TOTAL TRANSPORTATION", "TOTAL TRANSPORTATION AND DISTRIBUTION", "TOTAL TRANSPORTATION & DISTRIBUTION"}:
+        return "TOTAL"
     if carrier in {"NUMARK"}:
         return "NUMARK"
-    if carrier == "GOLD EAGLE TRANSPORTATION":
+    if carrier in {"GOLD EAGLE TRANSPORTATION", "DTI", "DTI/GOLD EAGLE TRANSPORTATION", "DTI / GOLD EAGLE TRANSPORTATION"}:
         return "GOLD EAGLE TRANSPORTATION"
     return carrier
 
@@ -574,13 +728,26 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         page = browser.new_page()
+
+        def visible_text() -> str:
+            try:
+                return page.locator("body").inner_text(timeout=10000)
+            except Exception:
+                frame_texts = []
+                for frame in page.frames:
+                    try:
+                        frame_texts.append(frame.locator("body").inner_text(timeout=3000))
+                    except Exception:
+                        pass
+                return "\n".join(frame_texts)
+
         for row in rows:
             carrier = row["carrier"]
             tracking = row["tracking"]
             try:
                 page.goto(tracking_url(carrier, tracking), wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(6000)
-                text = page.locator("body").inner_text(timeout=10000)
+                text = visible_text()
                 if carrier == "UPS":
                     if "Estimated delivery" not in text and page.locator("input").count() > 0:
                         try:
@@ -694,6 +861,84 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         "eta": eta,
                         "actual": actual,
                         "note": f"Estes: {status} {sheet_date(actual or eta)}".strip(),
+                    }
+                elif carrier == "TFORCE":
+                    try:
+                        page.wait_for_function(
+                            """() => /PRO\\(S\\) RELATED TO|\\b(In Transit|Delivered|Estimated Delivery|Out for Delivery)\\b/i.test(document.body.innerText || "")""",
+                            timeout=25000,
+                        )
+                    except Exception:
+                        page.wait_for_timeout(8000)
+
+                    text = page.locator("body").inner_text(timeout=10000)
+                    eta, actual, status = parse_tforce_tracking_text(text)
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "note": f"TForce: {status} {sheet_date(actual or eta)}".strip(),
+                    }
+                elif carrier == "XPO":
+                    text = page.locator("body").inner_text(timeout=10000)
+                    if re.search(r"captcha|not a robot", text, re.I):
+                        if headless:
+                            updates[row["row_number"]] = {
+                                "eta": None,
+                                "actual": None,
+                                "note": "XPO: CAPTCHA requires visible browser",
+                            }
+                            continue
+                        try:
+                            page.wait_for_function(
+                                """() => !/captcha|not a robot/i.test(document.body.innerText || "")
+                                    || /\b(In Transit|Delivered|Est\\. Delivery|Estimated Delivery)\b/i.test(document.body.innerText || "")""",
+                                timeout=90000,
+                            )
+                        except Exception:
+                            pass
+
+                    text = page.locator("body").inner_text(timeout=10000)
+                    if not re.search(r"\b(In Transit|Delivered|Est\. Delivery|Estimated Delivery)\b", text, re.I):
+                        try:
+                            field = page.locator("input[placeholder*='Tracking' i], input, textarea").first
+                            field.fill(tracking, timeout=10000)
+                            page.locator("button, [role='button']").filter(has_text=re.compile(r"search|track", re.I)).first.click(timeout=10000)
+                            page.wait_for_timeout(10000)
+                            text = page.locator("body").inner_text(timeout=10000)
+                        except Exception:
+                            pass
+
+                    eta, actual, status = parse_xpo_tracking_text(text)
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "note": f"XPO: {status} {sheet_date(actual or eta)}".strip(),
+                    }
+                elif carrier == "TOTAL":
+                    if not re.search(r"\bShipment Number:\b|\bEstimated Delivery Date:\b", text, re.I):
+                        total_frame = page.frame(name="mainf") or page
+                        quick_track = total_frame.locator("input[placeholder*='Quick Track' i]").first
+                        if quick_track.count() == 0:
+                            quick_track = total_frame.locator("input[name*='prolist' i]").first
+                        quick_track.fill(tracking, timeout=10000)
+                        try:
+                            total_frame.locator("button:has-text('Track'), input[value='Track']").last.click(timeout=10000)
+                        except Exception:
+                            quick_track.press("Enter", timeout=5000)
+                        try:
+                            page.wait_for_function(
+                                """() => /\bShipment Number:\b|\bEstimated Delivery Date:\b|\bStatus:\b/i.test(document.body.innerText || "")""",
+                                timeout=15000,
+                            )
+                        except Exception:
+                            page.wait_for_timeout(5000)
+
+                    text = visible_text()
+                    eta, actual, status = parse_total_tracking_text(text)
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "note": f"TOTAL: {status} {sheet_date(actual or eta)}".strip(),
                     }
             except Exception as exc:
                 updates[row["row_number"]] = {"eta": None, "actual": None, "note": f"{carrier}: {exc}"}
@@ -1753,7 +1998,7 @@ def apply_tracking_row_color(ws, row_number: int, delivered: bool):
     with_gsheets_retry(lambda: ws.format(f"A{row_number}:H{row_number}", {"backgroundColor": color}))
 
 
-def update_tracking_sheet() -> dict:
+def update_tracking_sheet(*, force_recent: bool = False) -> dict:
     ss = spreadsheet()
     try:
         ws = spreadsheet_worksheet(ss, TRACKING_TAB)
@@ -1772,6 +2017,7 @@ def update_tracking_sheet() -> dict:
     skipped_recent = 0
     errors: list[str] = []
     browser_rows: list[dict] = []
+    tracking_log_rows: list[list[str]] = []
     browser_row_limit = int((os.getenv("TRACKING_BROWSER_ROW_LIMIT") or "100").strip() or "100")
     now = datetime.now()
     tracking_cache = load_tracking_check_cache()
@@ -1786,35 +2032,43 @@ def update_tracking_sheet() -> dict:
             continue
 
         agent_update_existing = row_value(row, indexes["agent_update"])
-        if re.search(r"https?://", agent_update_existing, re.I):
-            url = tracking_url(carrier, tracking)
-            if url:
-                update_agent_update_cell(
-                    ws,
-                    offset,
-                    indexes["agent_update"],
-                    clean_agent_update_label(agent_update_existing),
-                    url,
-                )
-                updated_notes += 1
 
         if actual_existing:
-            apply_tracking_row_color(ws, offset, True)
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    "SKIPPED_DELIVERED",
+                    offset,
+                    carrier,
+                    tracking,
+                    eta_existing,
+                    eta_existing,
+                    actual_existing,
+                    actual_existing,
+                    "Already delivered",
+                )
+            )
             continue
-        apply_tracking_row_color(ws, offset, False)
 
-        if tracking_checked_recently(agent_update_existing, now) or cached_tracking_checked_recently(tracking_cache, carrier, tracking, now):
+        if not force_recent and (
+            tracking_checked_recently(agent_update_existing, now)
+            or cached_tracking_checked_recently(tracking_cache, carrier, tracking, now)
+        ):
             skipped_recent += 1
-            continue
-
-        if carrier == "UPS" and agent_update_existing:
-            remember_tracking_checked(tracking_cache, carrier, tracking, now)
-            existing_note = clean_agent_update_label(agent_update_existing)
-            note, url = tracking_note_with_link(carrier, existing_note, tracking)
-            update_agent_update_cell(ws, offset, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
-            save_tracking_check_cache(tracking_cache)
-            updated_notes += 1
-            skipped_recent += 1
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    "SKIPPED_RECENT",
+                    offset,
+                    carrier,
+                    tracking,
+                    eta_existing,
+                    eta_existing,
+                    actual_existing,
+                    actual_existing,
+                    agent_update_existing or "Checked in the last 2 hours",
+                )
+            )
             continue
 
         result: Optional[dict] = None
@@ -1828,15 +2082,32 @@ def update_tracking_sheet() -> dict:
             elif carrier == "GOLD EAGLE TRANSPORTATION" and (not eta_existing or not actual_existing):
                 result = get_dti_tracking(tracking)
                 remember_tracking_checked(tracking_cache, carrier, tracking, now)
-            elif carrier in {"UPS", "ESTES"}:
+            elif carrier in {"UPS", "ESTES", "TFORCE", "XPO", "TOTAL"}:
                 if (not eta_existing or not actual_existing) and len(browser_rows) < browser_row_limit:
-                    remember_tracking_checked(tracking_cache, carrier, tracking, now)
-                    browser_rows.append({"row_number": offset, "carrier": carrier, "tracking": tracking})
-                    existing_note = clean_agent_update_label(agent_update_existing) if agent_update_existing else f"{carrier}: tracking"
-                    note, url = tracking_note_with_link(carrier, existing_note, tracking)
-                    update_agent_update_cell(ws, offset, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
-                    updated_notes += 1
-                    save_tracking_check_cache(tracking_cache)
+                    browser_rows.append(
+                        {
+                            "row_number": offset,
+                            "carrier": carrier,
+                            "tracking": tracking,
+                            "old_eta": eta_existing,
+                            "old_actual": actual_existing,
+                        }
+                    )
+                elif (not eta_existing or not actual_existing):
+                    tracking_log_rows.append(
+                        tracking_log_row(
+                            now,
+                            "SKIPPED_BROWSER_LIMIT",
+                            offset,
+                            carrier,
+                            tracking,
+                            eta_existing,
+                            eta_existing,
+                            actual_existing,
+                            actual_existing,
+                            "Browser tracking row limit reached",
+                        )
+                    )
                 continue
         except Exception as exc:
             remember_tracking_checked(tracking_cache, carrier, tracking, now)
@@ -1844,12 +2115,43 @@ def update_tracking_sheet() -> dict:
             note = with_tracking_checked_stamp(f"{carrier}: {exc}", now)
             update_agent_update_cell(ws, offset, indexes["agent_update"], note)
             errors.append(f"Row {offset}: {note}")
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    "ERROR",
+                    offset,
+                    carrier,
+                    tracking,
+                    eta_existing,
+                    eta_existing,
+                    actual_existing,
+                    actual_existing,
+                    note,
+                )
+            )
             continue
 
         if result is None:
+            if not actual_existing:
+                tracking_log_rows.append(
+                    tracking_log_row(
+                        now,
+                        "SKIPPED_UNSUPPORTED",
+                        offset,
+                        carrier,
+                        tracking,
+                        eta_existing,
+                        eta_existing,
+                        actual_existing,
+                        actual_existing,
+                        f"{carrier}: automatic tracking is not configured",
+                    )
+                )
             continue
 
         checked += 1
+        old_eta = eta_existing
+        old_actual = actual_existing
         if not eta_existing and result.get("eta"):
             with_gsheets_retry(lambda r=offset, v=sheet_date(result["eta"]): ws.update_cell(r, indexes["eta"] + 1, v))
             eta_existing = sheet_date(result["eta"])
@@ -1864,13 +2166,32 @@ def update_tracking_sheet() -> dict:
             updated_notes += 1
         apply_tracking_row_color(ws, offset, bool(actual_existing))
         save_tracking_check_cache(tracking_cache)
+        changed = old_eta != eta_existing or old_actual != actual_existing
+        tracking_log_rows.append(
+            tracking_log_row(
+                now,
+                "CHECKED_UPDATED" if changed else "CHECKED_NO_CHANGE",
+                offset,
+                carrier,
+                tracking,
+                old_eta,
+                eta_existing,
+                old_actual,
+                actual_existing,
+                result.get("note") or "",
+            )
+        )
 
     if browser_rows:
         browser_results = browser_tracking_updates(browser_rows)
+        browser_rows_by_number = {int(row["row_number"]): row for row in browser_rows}
         for row_number, result in browser_results.items():
             current_row = rows[row_number - 1] if row_number - 1 < len(rows) else []
+            browser_row = browser_rows_by_number.get(int(row_number), {})
             eta_existing = row_value(current_row, indexes["eta"])
             actual_existing = row_value(current_row, indexes["actual"])
+            old_eta = str(browser_row.get("old_eta") or eta_existing)
+            old_actual = str(browser_row.get("old_actual") or actual_existing)
             carrier = row_value(current_row, indexes["carrier"])
             tracking = row_value(current_row, indexes["tracking"])
             if not eta_existing and result.get("eta"):
@@ -1886,6 +2207,28 @@ def update_tracking_sheet() -> dict:
             update_agent_update_cell(ws, row_number, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
             updated_notes += 1
             apply_tracking_row_color(ws, row_number, bool(actual_existing))
+            changed = old_eta != eta_existing or old_actual != actual_existing
+            result_label = "CHECKED_UPDATED" if changed else "CHECKED_NO_CHANGE"
+            if re.search(r":\s*.+Error|Timeout|failed|Exception", str(result.get("note") or ""), re.I):
+                result_label = "ERROR"
+            remember_tracking_checked(tracking_cache, carrier, tracking, now)
+            save_tracking_check_cache(tracking_cache)
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    result_label,
+                    row_number,
+                    carrier,
+                    tracking,
+                    old_eta,
+                    eta_existing,
+                    old_actual,
+                    actual_existing,
+                    result.get("note") or note,
+                )
+            )
+
+    append_tracking_log_rows(ss, tracking_log_rows)
 
     return {
         "ok": True,
@@ -1893,16 +2236,22 @@ def update_tracking_sheet() -> dict:
         "updated_eta": updated_eta,
         "updated_actual": updated_actual,
         "updated_notes": updated_notes,
+        "logged": len(tracking_log_rows),
         "skipped_recent": skipped_recent,
         "browser_checked": len(browser_rows),
         "errors": errors[:10],
     }
 
 
+class UpdateTrackingPayload(BaseModel):
+    force_recent: bool = False
+
+
 @app.post("/api/update-tracking")
-async def update_tracking():
+async def update_tracking(payload: UpdateTrackingPayload):
     try:
-        return await asyncio.to_thread(update_tracking_sheet)
+        async with TRACKING_UPDATE_LOCK:
+            return await asyncio.to_thread(update_tracking_sheet, force_recent=payload.force_recent)
     except HTTPException:
         raise
     except Exception as exc:

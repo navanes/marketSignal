@@ -22,7 +22,10 @@ def with_gsheets_retry(fn, *, attempts=5, base_delay=1.0):
             if attempt == attempts - 1:
                 raise
 
-            time.sleep(base_delay * (attempt + 1))
+            if status_code == 429:
+                time.sleep(max(15.0, base_delay * (attempt + 1)))
+            else:
+                time.sleep(base_delay * (attempt + 1))
 
     if last_exc:
         raise last_exc
