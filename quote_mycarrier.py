@@ -101,6 +101,25 @@ def maybe_close_banner(page):
 
 
 def quote_line_items(data: dict):
+    pallet_items = data.get("pallet_items") or []
+    if pallet_items:
+        line_items = []
+        for index, item in enumerate(pallet_items, start=1):
+            line_items.append(
+                {
+                    "count": "1",
+                    "length": integer_string(item.get("length"), round_up=True),
+                    "width": integer_string(item.get("width"), round_up=True),
+                    "height": integer_string(item.get("height"), round_up=True),
+                    "commodity_description": str(item.get("commodity_description") or data.get("commodity_description") or "Sheet Metal Parts").strip()
+                    or "Sheet Metal Parts",
+                    "freight_class": str(item.get("freight_class") or data.get("freight_class") or "").strip(),
+                    "pieces": integer_string(item.get("pieces") or "1") or "1",
+                    "weight": integer_string(item.get("weight"), round_up=True),
+                }
+            )
+        return line_items
+
     default_item = {
         "count": integer_string(data.get("pallets") or "1") or "1",
         "length": integer_string(data.get("length"), round_up=True),
@@ -439,16 +458,47 @@ def fill_destination(page, dest_zip: str):
 
 
 def shipment_item_row(page, index: int):
+    handling_units = page.locator("cup-shipment-items cup-handling-unit")
+    if handling_units.count() > 0:
+        return handling_units.nth(index)
     return page.locator("cup-shipment-items .shipment-item").nth(index)
 
 
 def add_handling_unit(page):
-    add_link = page.locator("a.add-h-u-link, #shipmentI-addHandlingUnit-MTzZkc").first
-    if add_link.count() == 0:
-        raise RuntimeError("Could not find MyCarrier Add H/U control.")
-    add_link.scroll_into_view_if_needed()
-    add_link.click(force=True)
-    wait_after_step(page, 2)
+    def handling_unit_count() -> int:
+        count = page.locator("cup-shipment-items cup-handling-unit").count()
+        if count:
+            return count
+        return page.locator("cup-shipment-items .shipment-item").count()
+
+    starting_count = handling_unit_count()
+    candidates = [
+        page.get_by_text("Add H/U", exact=True).first,
+        page.get_by_role("link", name=re.compile(r"Add\s+H/U", re.I)).first,
+        page.get_by_role("button", name=re.compile(r"Add\s+H/U", re.I)).first,
+        page.locator("a.add-h-u-link, [id^='shipmentI-addHandlingUnit'], a:has-text('Add H/U')").first,
+    ]
+
+    for add_link in candidates:
+        try:
+            if add_link.count() == 0:
+                continue
+            add_link.scroll_into_view_if_needed(timeout=5000)
+            add_link.click(force=True, timeout=5000)
+            for _ in range(20):
+                wait_after_step(page)
+                if handling_unit_count() > starting_count:
+                    print("MyCarrier Add H/U clicked; new shipment row added.", flush=True)
+                    return
+        except Exception:
+            if handling_unit_count() > starting_count:
+                print("MyCarrier Add H/U clicked; new shipment row added.", flush=True)
+                return
+            continue
+
+    page.screenshot(path="mycarrier_add_handling_unit_failed.png", full_page=True)
+    Path("mycarrier_add_handling_unit_failed.html").write_text(page.content(), encoding="utf-8")
+    raise RuntimeError("Could not add MyCarrier H/U row. Saved mycarrier_add_handling_unit_failed.png")
 
 
 def fill_shipment_items(page, data: dict):

@@ -185,6 +185,7 @@ Rules:
 """
 
 TRACKING_YELLOW = {"red": 1.0, "green": 0.949, "blue": 0.8}
+TRACKING_PARTIAL_YELLOW = {"red": 1.0, "green": 1.0, "blue": 0.0}
 TRACKING_GREEN = {"red": 0.851, "green": 0.918, "blue": 0.827}
 TRACKING_CHECK_COOLDOWN = timedelta(hours=2)
 TRACKING_CHECKED_PATTERN = re.compile(r"\(checked\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\)", re.I)
@@ -353,6 +354,94 @@ def parse_ups_date_from_text(text: str, label: str) -> Optional[date]:
     return parse_month_day(snippet)
 
 
+def parse_ups_shipment_piece_count(text: str) -> Optional[int]:
+    match = re.search(r"\b\d+\s+of\s+(\d+)\s+Piece\s+Shipment\b", text or "", re.I)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def parse_ups_package_blocks(text: str) -> list[dict]:
+    content = text or ""
+    section_match = re.search(r"Other Packages in this Shipment([\s\S]+?)(?:Stay Safe|Track Another Package|$)", content, re.I)
+    section = section_match.group(1) if section_match else content
+    matches = list(re.finditer(r"\b1Z[A-Z0-9]{16}\b", section, re.I))
+    packages: list[dict] = []
+    seen: set[str] = set()
+    for index, match in enumerate(matches):
+        tracking_number = match.group(0).upper()
+        if tracking_number in seen:
+            continue
+        seen.add(tracking_number)
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(section)
+        block = section[match.end() : end]
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        status = ""
+        for line in lines:
+            if re.search(r"copy|tracking|latest update|delivered on", line, re.I):
+                continue
+            status = clean_tracking_text(line)
+            break
+        if not status:
+            status = "Delivered" if re.search(r"\bDelivered\b", block, re.I) else "tracking"
+        actual = parse_ups_date_from_text(block, r"Delivered(?:\s+On)?") if re.search(r"\bDelivered\b", status, re.I) else None
+        eta = parse_ups_date_from_text(block, r"Estimated delivery")
+        packages.append(
+            {
+                "tracking": tracking_number,
+                "status": status,
+                "eta": eta,
+                "actual": actual,
+            }
+        )
+    return packages
+
+
+def summarize_ups_tracking(text: str, tracking: str) -> dict:
+    eta = parse_ups_date_from_text(text, r"Estimated delivery")
+    actual = parse_ups_date_from_text(text, r"Delivered(?:\s+On)?")
+    piece_count = parse_ups_shipment_piece_count(text)
+    packages = parse_ups_package_blocks(text) if piece_count and piece_count > 1 else []
+
+    if piece_count and piece_count > 1:
+        if len(packages) < piece_count:
+            return {
+                "eta": eta,
+                "actual": None,
+                "partial": True,
+                "note": f"UPS: {piece_count} package shipment; could not read every package status",
+            }
+
+        delivered_packages = [package for package in packages if re.search(r"\bDelivered\b", package["status"], re.I)]
+        pending_packages = [package for package in packages if package not in delivered_packages]
+        if pending_packages:
+            pending = pending_packages[0]
+            package_etas = [package["eta"] for package in packages if package["eta"]]
+            pending_text = f"{pending['tracking']} {pending['status']}".strip()
+            return {
+                "eta": eta or (min(package_etas) if package_etas else None),
+                "actual": None,
+                "partial": True,
+                "note": f"UPS: {len(delivered_packages)}/{len(packages)} packages delivered; pending {pending_text}",
+            }
+
+        actual_dates = [package["actual"] for package in packages if package["actual"]]
+        actual = max(actual_dates) if actual_dates else actual
+        return {
+            "eta": eta,
+            "actual": actual,
+            "partial": False,
+            "note": f"UPS: All {len(packages)} packages delivered {sheet_date(actual)}".strip(),
+        }
+
+    return {
+        "eta": eta,
+        "actual": actual,
+        "partial": False,
+        "note": f"UPS: {'Delivered' if actual else 'ETA' if eta else 'tracking'} {sheet_date(actual or eta)}".strip(),
+    }
+
+
 def parse_first_us_date_near_label(text: str, label: str, *, pick_last: bool = False, window: int = 300) -> Optional[date]:
     match = re.search(label, text or "", re.I)
     if not match:
@@ -369,9 +458,13 @@ def parse_estes_tracking_text(text: str) -> tuple[Optional[date], Optional[date]
     actual = None
     eta = None
 
-    actual = parse_first_us_date_near_label(content, r"Actual Delivery Date")
-    if not actual:
-        actual = parse_first_us_date_near_label(content, r"\bDelivered\b")
+    status_match = re.search(r"\b(Delivered|Delivery Attempted|In Transit|Picked Up|Out for Delivery)\b", content, re.I)
+    status = status_match.group(1).title() if status_match else ""
+
+    if re.fullmatch(r"Delivered", status, re.I):
+        actual = parse_first_us_date_near_label(content, r"Actual Delivery Date")
+        if not actual:
+            actual = parse_first_us_date_near_label(content, r"\bDelivered\b")
 
     eta = parse_first_us_date_near_label(content, r"Estimated Delivery Date")
     if not eta:
@@ -388,8 +481,7 @@ def parse_estes_tracking_text(text: str) -> tuple[Optional[date], Optional[date]
         if row_match:
             eta = parse_us_date(row_match.group(3))
 
-    status_match = re.search(r"\b(Delivered|In Transit|Picked Up|Out for Delivery)\b", content, re.I)
-    status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    status = status or ("Delivered" if actual else "ETA" if eta else "tracking")
     return eta, actual, status
 
 
@@ -440,8 +532,10 @@ def parse_total_tracking_text(text: str) -> tuple[Optional[date], Optional[date]
 
     eta = parse_first_us_date_near_label(content, r"Estimated Delivery Date", window=120)
     actual = None
-    if re.search(r"\bdelivered\b", status, re.I):
-        actual = parse_first_us_date_near_label(content, r"\bDelivered\b", window=220)
+    if re.search(r"\b(delivered|delivery complete)\b", status, re.I):
+        actual = parse_first_us_date_near_label(content, r"Delivered Date", window=80)
+        if not actual:
+            actual = parse_first_us_date_near_label(content, r"\bDelivered\b", window=220)
         if not actual:
             actual = parse_first_us_date_near_label(content, r"\bStatus:\s*Delivered\b", window=220)
 
@@ -741,6 +835,42 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         pass
                 return "\n".join(frame_texts)
 
+        def show_manual_captcha_notice(carrier_name: str, wait_seconds: int):
+            try:
+                page.bring_to_front()
+                page.evaluate(
+                    """({ carrierName, waitSeconds }) => {
+                        const existing = document.getElementById("freight-agent-captcha-notice");
+                        if (existing) existing.remove();
+                        const notice = document.createElement("div");
+                        notice.id = "freight-agent-captcha-notice";
+                        notice.textContent = `${carrierName} needs you to click the CAPTCHA checkbox. Waiting up to ${Math.round(waitSeconds / 60)} minutes, then tracking will continue automatically.`;
+                        Object.assign(notice.style, {
+                            position: "fixed",
+                            top: "18px",
+                            left: "50%",
+                            transform: "translateX(-50%)",
+                            zIndex: "2147483647",
+                            background: "#fff200",
+                            color: "#111",
+                            border: "3px solid #111",
+                            borderRadius: "8px",
+                            boxShadow: "0 10px 30px rgba(0,0,0,0.3)",
+                            fontFamily: "Arial, sans-serif",
+                            fontSize: "18px",
+                            fontWeight: "700",
+                            lineHeight: "1.35",
+                            maxWidth: "760px",
+                            padding: "16px 20px",
+                            textAlign: "center",
+                        });
+                        document.body.appendChild(notice);
+                    }""",
+                    {"carrierName": carrier_name, "waitSeconds": wait_seconds},
+                )
+            except Exception:
+                pass
+
         for row in rows:
             carrier = row["carrier"]
             tracking = row["tracking"]
@@ -757,15 +887,21 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                             text = page.locator("body").inner_text(timeout=10000)
                         except Exception:
                             pass
-                    eta = None
-                    actual = None
-                    actual = parse_ups_date_from_text(text, r"Delivered(?:\s+On)?")
-                    eta = parse_ups_date_from_text(text, r"Estimated delivery")
-                    updates[row["row_number"]] = {
-                        "eta": eta,
-                        "actual": actual,
-                        "note": f"UPS: {'Delivered' if actual else 'ETA' if eta else 'tracking'} {sheet_date(actual or eta)}".strip(),
-                    }
+                    piece_count = parse_ups_shipment_piece_count(text)
+                    if piece_count and piece_count > 1 and "Other Packages in this Shipment" not in text:
+                        try:
+                            page.get_by_text(re.compile(r"\d+\s+of\s+\d+\s+Piece\s+Shipment", re.I)).first.click(timeout=10000)
+                            page.wait_for_timeout(4000)
+                            text = visible_text()
+                        except Exception:
+                            try:
+                                page.get_by_text(re.compile(r"Shipment Details", re.I)).first.click(timeout=5000)
+                                page.wait_for_timeout(4000)
+                                text = visible_text()
+                            except Exception:
+                                pass
+
+                    updates[row["row_number"]] = summarize_ups_tracking(text, tracking)
                 elif carrier == "ESTES":
                     try:
                         criteria = page.locator(
@@ -838,7 +974,7 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                     try:
                         page.wait_for_function(
                             """() => /Tracking Results/i.test(document.body.innerText || "")
-                                && /\b(In Transit|Delivered|Picked Up|Out for Delivery)\b/i.test(document.body.innerText || "")""",
+                                && /\b(In Transit|Delivered|Delivery Attempted|Picked Up|Out for Delivery)\b/i.test(document.body.innerText || "")""",
                             timeout=15000,
                         )
                     except Exception:
@@ -860,6 +996,7 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                     updates[row["row_number"]] = {
                         "eta": eta,
                         "actual": actual,
+                        "delivered": bool(actual),
                         "note": f"Estes: {status} {sheet_date(actual or eta)}".strip(),
                     }
                 elif carrier == "TFORCE":
@@ -876,11 +1013,13 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                     updates[row["row_number"]] = {
                         "eta": eta,
                         "actual": actual,
+                        "delivered": bool(actual),
                         "note": f"TForce: {status} {sheet_date(actual or eta)}".strip(),
                     }
                 elif carrier == "XPO":
                     text = page.locator("body").inner_text(timeout=10000)
                     if re.search(r"captcha|not a robot", text, re.I):
+                        wait_seconds = 180
                         if headless:
                             updates[row["row_number"]] = {
                                 "eta": None,
@@ -888,14 +1027,27 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                                 "note": "XPO: CAPTCHA requires visible browser",
                             }
                             continue
+                        show_manual_captcha_notice("XPO", wait_seconds)
                         try:
                             page.wait_for_function(
                                 """() => !/captcha|not a robot/i.test(document.body.innerText || "")
                                     || /\b(In Transit|Delivered|Est\\. Delivery|Estimated Delivery)\b/i.test(document.body.innerText || "")""",
-                                timeout=90000,
+                                timeout=wait_seconds * 1000,
                             )
                         except Exception:
                             pass
+                        text = page.locator("body").inner_text(timeout=10000)
+                        if re.search(r"captcha|not a robot", text, re.I) and not re.search(
+                            r"\b(In Transit|Delivered|Est\. Delivery|Estimated Delivery)\b",
+                            text,
+                            re.I,
+                        ):
+                            updates[row["row_number"]] = {
+                                "eta": None,
+                                "actual": None,
+                                "note": "XPO: CAPTCHA requires manual check",
+                            }
+                            continue
 
                     text = page.locator("body").inner_text(timeout=10000)
                     if not re.search(r"\b(In Transit|Delivered|Est\. Delivery|Estimated Delivery)\b", text, re.I):
@@ -909,9 +1061,18 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                             pass
 
                     eta, actual, status = parse_xpo_tracking_text(text)
+                    if not eta and not actual and re.fullmatch(r"tracking", status or "", re.I):
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "delivered": False,
+                            "note": "XPO: manual check required",
+                        }
+                        continue
                     updates[row["row_number"]] = {
                         "eta": eta,
                         "actual": actual,
+                        "delivered": bool(actual),
                         "note": f"XPO: {status} {sheet_date(actual or eta)}".strip(),
                     }
                 elif carrier == "TOTAL":
@@ -1974,6 +2135,7 @@ def stop_run(payload: StopPayload):
 def tracking_header_indexes(headers: list[str]) -> dict[str, int]:
     normalized = [str(header or "").strip().upper() for header in headers]
     required = {
+        "date_shipped": "DATE SHIPPED",
         "eta": "ETA",
         "actual": "ACTUAL",
         "carrier": "CARRIER",
@@ -1993,8 +2155,8 @@ def row_value(row: list[str], index: int) -> str:
     return str(row[index]).strip() if index < len(row) else ""
 
 
-def apply_tracking_row_color(ws, row_number: int, delivered: bool):
-    color = TRACKING_GREEN if delivered else TRACKING_YELLOW
+def apply_tracking_row_color(ws, row_number: int, delivered: bool, *, partial: bool = False):
+    color = TRACKING_PARTIAL_YELLOW if partial else TRACKING_GREEN if delivered else TRACKING_YELLOW
     with_gsheets_retry(lambda: ws.format(f"A{row_number}:H{row_number}", {"backgroundColor": color}))
 
 
@@ -2015,6 +2177,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
     updated_actual = 0
     updated_notes = 0
     skipped_recent = 0
+    skipped_today = 0
     errors: list[str] = []
     browser_rows: list[dict] = []
     tracking_log_rows: list[list[str]] = []
@@ -2025,6 +2188,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
     for offset, row in enumerate(rows[1:], start=2):
         carrier = normalize_carrier(row_value(row, indexes["carrier"]))
         tracking = row_value(row, indexes["tracking"])
+        date_shipped_existing = row_value(row, indexes["date_shipped"])
         eta_existing = row_value(row, indexes["eta"])
         actual_existing = row_value(row, indexes["actual"])
 
@@ -2032,8 +2196,26 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             continue
 
         agent_update_existing = row_value(row, indexes["agent_update"])
+        shipped_date = parse_us_date_flexible(date_shipped_existing)
+        if shipped_date == now.date():
+            skipped_today += 1
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    "SKIPPED_TODAY",
+                    offset,
+                    carrier,
+                    tracking,
+                    eta_existing,
+                    eta_existing,
+                    actual_existing,
+                    actual_existing,
+                    "Shipment date is today",
+                )
+            )
+            continue
 
-        if actual_existing:
+        if actual_existing and not (force_recent and carrier in {"UPS", "ESTES", "TFORCE", "XPO", "TOTAL"}):
             tracking_log_rows.append(
                 tracking_log_row(
                     now,
@@ -2083,7 +2265,8 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
                 result = get_dti_tracking(tracking)
                 remember_tracking_checked(tracking_cache, carrier, tracking, now)
             elif carrier in {"UPS", "ESTES", "TFORCE", "XPO", "TOTAL"}:
-                if (not eta_existing or not actual_existing) and len(browser_rows) < browser_row_limit:
+                needs_browser_check = force_recent or not eta_existing or not actual_existing
+                if needs_browser_check and len(browser_rows) < browser_row_limit:
                     browser_rows.append(
                         {
                             "row_number": offset,
@@ -2093,7 +2276,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
                             "old_actual": actual_existing,
                         }
                     )
-                elif (not eta_existing or not actual_existing):
+                elif needs_browser_check:
                     tracking_log_rows.append(
                         tracking_log_row(
                             now,
@@ -2160,11 +2343,15 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             with_gsheets_retry(lambda r=offset, v=sheet_date(result["actual"]): ws.update_cell(r, indexes["actual"] + 1, v))
             actual_existing = sheet_date(result["actual"])
             updated_actual += 1
+        if (result.get("partial") or result.get("delivered") is False) and actual_existing:
+            with_gsheets_retry(lambda r=offset: ws.update_cell(r, indexes["actual"] + 1, ""))
+            actual_existing = ""
+            updated_actual += 1
         if result.get("note"):
             note, url = tracking_note_with_link(carrier, result["note"], tracking)
             update_agent_update_cell(ws, offset, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
             updated_notes += 1
-        apply_tracking_row_color(ws, offset, bool(actual_existing))
+        apply_tracking_row_color(ws, offset, bool(actual_existing) and not result.get("partial"), partial=bool(result.get("partial")))
         save_tracking_check_cache(tracking_cache)
         changed = old_eta != eta_existing or old_actual != actual_existing
         tracking_log_rows.append(
@@ -2202,11 +2389,15 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
                 with_gsheets_retry(lambda r=row_number, v=sheet_date(result["actual"]): ws.update_cell(r, indexes["actual"] + 1, v))
                 actual_existing = sheet_date(result["actual"])
                 updated_actual += 1
+            if (result.get("partial") or result.get("delivered") is False) and actual_existing:
+                with_gsheets_retry(lambda r=row_number: ws.update_cell(r, indexes["actual"] + 1, ""))
+                actual_existing = ""
+                updated_actual += 1
             note = result.get("note") or f"{carrier} tracking"
             note, url = tracking_note_with_link(carrier, note, tracking)
             update_agent_update_cell(ws, row_number, indexes["agent_update"], with_tracking_checked_stamp(note, now), url)
             updated_notes += 1
-            apply_tracking_row_color(ws, row_number, bool(actual_existing))
+            apply_tracking_row_color(ws, row_number, bool(actual_existing) and not result.get("partial"), partial=bool(result.get("partial")))
             changed = old_eta != eta_existing or old_actual != actual_existing
             result_label = "CHECKED_UPDATED" if changed else "CHECKED_NO_CHANGE"
             if re.search(r":\s*.+Error|Timeout|failed|Exception", str(result.get("note") or ""), re.I):
@@ -2238,6 +2429,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
         "updated_notes": updated_notes,
         "logged": len(tracking_log_rows),
         "skipped_recent": skipped_recent,
+        "skipped_today": skipped_today,
         "browser_checked": len(browser_rows),
         "errors": errors[:10],
     }
