@@ -282,7 +282,7 @@ def schneider_line_items(data: dict):
         for item in pallet_items:
             items.append(
                 {
-                    "quantity": "1",
+                    "quantity": integer_string(item.get("pieces") or "1") or "1",
                     "length": integer_string(item.get("length"), round_up=True),
                     "width": integer_string(item.get("width"), round_up=True),
                     "height": integer_string(item.get("height"), round_up=True),
@@ -372,8 +372,8 @@ async def fill_shipping_details(page, data: dict):
         await page.screenshot(path="schneider_dropdowns_missing.png", full_page=True)
         raise RuntimeError("Could not find Schneider dropdowns. Saved schneider_dropdowns_missing.png")
 
-    await choose_dropdown_option(dropdowns.nth(0), "Business with loading dock", page)
-    await choose_dropdown_option(dropdowns.nth(1), "Business with loading dock", page)
+    await choose_dropdown_option(dropdowns.nth(0), "Business without loading dock", page)
+    await choose_dropdown_option(dropdowns.nth(1), "Business without loading dock", page)
 
 
 async def fill_commodity_row(page, row, item: dict):
