@@ -302,7 +302,7 @@ def parse_compact_date(value: str) -> Optional[date]:
     return date(int(text[:4]), int(text[4:6]), int(text[6:8]))
 
 
-def parse_month_day(value: str) -> Optional[date]:
+def parse_month_day(value: str, *, roll_past_forward: bool = True) -> Optional[date]:
     text = value or ""
     if re.search(r"\btoday\b", text, re.I):
         return date.today()
@@ -332,9 +332,43 @@ def parse_month_day(value: str) -> Optional[date]:
     }
     today = date.today()
     parsed = date(today.year, month_names[match.group(1).lower()], int(match.group(2)))
-    if parsed < today - timedelta(days=30):
+    if roll_past_forward and parsed < today - timedelta(days=30):
         parsed = date(today.year + 1, parsed.month, parsed.day)
     return parsed
+
+
+def parse_named_date(value: str) -> Optional[date]:
+    text = value or ""
+    month_names = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    }
+    match = re.search(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b",
+        text,
+        re.I,
+    )
+    if match:
+        return date(int(match.group(3)), month_names[match.group(1).lower()], int(match.group(2)))
+
+    match = re.search(
+        r"\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b",
+        text,
+        re.I,
+    )
+    if match:
+        return date(int(match.group(3)), month_names[match.group(2).lower()], int(match.group(1)))
+    return None
 
 
 def parse_ups_date_from_text(text: str, label: str) -> Optional[date]:
@@ -351,7 +385,10 @@ def parse_ups_date_from_text(text: str, label: str) -> Optional[date]:
     if stop_match:
         snippet = snippet[: stop_match.start()]
 
-    return parse_month_day(snippet)
+    return parse_named_date(snippet) or parse_month_day(
+        snippet,
+        roll_past_forward=not re.search(r"Delivered", label, re.I),
+    )
 
 
 def parse_ups_shipment_piece_count(text: str) -> Optional[int]:
@@ -549,6 +586,64 @@ def parse_total_tracking_text(text: str) -> tuple[Optional[date], Optional[date]
     return eta, actual, status
 
 
+def parse_abf_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    current_status_match = re.search(r"\bCURRENT STATUS\s+([^\n\r]+)", content, re.I)
+    status = clean_tracking_text(current_status_match.group(1)).title() if current_status_match else ""
+    eta = (
+        parse_first_us_date_near_label(content, r"Estimated\s+Delivery(?:\s+Date)?", window=220)
+        or parse_first_us_date_near_label(content, r"Scheduled\s+Delivery(?:\s+Date)?", window=220)
+        or parse_first_us_date_near_label(content, r"Expected\s+Delivery(?:\s+Date)?", window=220)
+    )
+    actual = None
+    delivered_on_match = re.search(r"\bdelivered\s+on\s+(\d{1,2}/\d{1,2}/\d{2,4})", content, re.I)
+    if delivered_on_match:
+        actual = parse_us_date_flexible(delivered_on_match.group(1))
+    elif re.fullmatch(r"Delivered", status or "", re.I):
+        actual = (
+            parse_first_us_date_near_label(content, r"Actual\s+Delivery(?:\s+Date)?", window=220)
+            or parse_first_us_date_near_label(content, r"Delivered(?:\s+On)?", window=220)
+            or parse_first_us_date_near_label(content, r"Delivery\s+Date", window=220)
+        )
+
+    if not status:
+        status_match = re.search(
+            r"\b(Delivered|Out for Delivery|In Transit|Arrived(?: at)? Terminal|At Terminal|Picked Up|Pickup Requested|Appointment Scheduled)\b",
+            content,
+            re.I,
+        )
+        status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    return eta, actual, status
+
+
+def parse_usps_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    actual = None
+    eta = (
+        parse_first_us_date_near_label(content, r"Expected\s+Delivery(?:\s+on)?", window=220)
+        or parse_named_date(content)
+        or parse_month_day(content)
+    )
+
+    delivered_match = re.search(r"\bDelivered\b[\s\S]{0,220}", content, re.I)
+    if delivered_match:
+        snippet = delivered_match.group(0)
+        actual = parse_first_us_date_near_label(snippet, r"\bDelivered\b", window=220) or parse_named_date(snippet) or parse_month_day(
+            snippet,
+            roll_past_forward=False,
+        )
+
+    status_match = re.search(
+        r"\b(Delivered|Out for Delivery|Arrived at Post Office|In Transit|Moving Through Network|Accepted|Pre-Shipment)\b",
+        content,
+        re.I,
+    )
+    status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    if actual:
+        eta = None
+    return eta, actual, status
+
+
 def sheet_date(value: date | None) -> str:
     if not value:
         return ""
@@ -721,6 +816,8 @@ def tracking_url(carrier: str, tracking: str) -> str:
     encoded = quote(tracking)
     if normalized == "UPS":
         return f"https://www.ups.com/track?loc=en_US&tracknum={encoded}&requester=ST/trackdetails"
+    if normalized == "USPS":
+        return f"https://tools.usps.com/tracking/{encoded}"
     if normalized == "ESTES":
         return f"https://www.estes-express.com/myestes/shipment-tracking/?query={encoded}&type=PRO"
     if normalized == "TFORCE":
@@ -729,9 +826,11 @@ def tracking_url(carrier: str, tracking: str) -> str:
         return f"https://ext-web.ltl-xpo.com/public-app/shipments?referenceNumber={encoded}"
     if normalized == "TOTAL":
         return "http://tracking.carrierlogistics.com/scripts/tot.pol/facts"
+    if normalized == "ABF":
+        return f"https://view.arcb.com/nlo/tools/tracking/{encoded}"
     if normalized == "R&L":
         return f"https://www2.rlcarriers.com/freight/shipping/shipment-tracing?pro={encoded}&docType=PRO&source=web"
-    if normalized == "GOLD EAGLE TRANSPORTATION":
+    if normalized == "DTI":
         return "https://my.dtitrans.com/shipmenttracking"
     if normalized == "NUMARK":
         return f"http://tracking.numarktransportation.net/cgibin/wbprotrk?wbfb={encoded}&wbscac="
@@ -742,8 +841,10 @@ def normalize_carrier(value: str) -> str:
     carrier = re.sub(r"\s+", " ", (value or "").strip().upper())
     if carrier in {"R&L", "R+L", "R L", "RL CARRIERS", "R AND L"}:
         return "R&L"
-    if carrier in {"UPS"}:
+    if re.fullmatch(r"UPS(?:\s*\(\s*SAMPLES?\s*\)|\s+SAMPLES?)?", carrier):
         return "UPS"
+    if carrier in {"USPS", "U S P S", "UNITED STATES POSTAL SERVICE"}:
+        return "USPS"
     if carrier in {"ESTES"}:
         return "ESTES"
     if carrier in {"TFORCE", "T FORCE", "TFORCE FREIGHT", "T FORCE FREIGHT", "TFORCE FREIGHT INC"}:
@@ -752,10 +853,12 @@ def normalize_carrier(value: str) -> str:
         return "XPO"
     if carrier in {"TOTAL", "TOTAL TRANSPORTATION", "TOTAL TRANSPORTATION AND DISTRIBUTION", "TOTAL TRANSPORTATION & DISTRIBUTION"}:
         return "TOTAL"
+    if carrier in {"ABF", "ABF FREIGHT", "ARCBEST", "ARC BEST", "ARCBEST ABF", "ABF FREIGHT SYSTEM"}:
+        return "ABF"
     if carrier in {"NUMARK"}:
         return "NUMARK"
-    if carrier in {"GOLD EAGLE TRANSPORTATION", "DTI", "DTI/GOLD EAGLE TRANSPORTATION", "DTI / GOLD EAGLE TRANSPORTATION"}:
-        return "GOLD EAGLE TRANSPORTATION"
+    if carrier == "GOLD EAGLE TRANSPORTATION" or re.match(r"^DTI(?:\b|[\s/\\-])", carrier):
+        return "DTI"
     return carrier
 
 
@@ -872,7 +975,7 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                 pass
 
         for row in rows:
-            carrier = row["carrier"]
+            carrier = normalize_carrier(row["carrier"])
             tracking = row["tracking"]
             try:
                 page.goto(tracking_url(carrier, tracking), wait_until="domcontentloaded", timeout=60000)
@@ -902,6 +1005,48 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                                 pass
 
                     updates[row["row_number"]] = summarize_ups_tracking(text, tracking)
+                elif carrier == "USPS":
+                    if tracking not in text or not re.search(r"\b(Delivered|Out for Delivery|Expected Delivery|In Transit)\b", text, re.I):
+                        try:
+                            field = page.locator(
+                                "input[name='tLabels'], input[id*='tracking' i], input[placeholder*='Tracking' i], input[type='text']"
+                            ).first
+                            field.fill(tracking, timeout=10000)
+                            try:
+                                page.locator("button, input[type='submit'], [role='button']").filter(
+                                    has_text=re.compile(r"track|search", re.I)
+                                ).first.click(timeout=10000)
+                            except Exception:
+                                field.press("Enter", timeout=5000)
+                            page.wait_for_timeout(8000)
+                            text = visible_text()
+                        except Exception:
+                            pass
+
+                    try:
+                        page.wait_for_function(
+                            """() => /\b(Delivered|Out for Delivery|Expected Delivery|In Transit|Arrived at Post Office)\b/i.test(document.body.innerText || "")""",
+                            timeout=20000,
+                        )
+                    except Exception:
+                        page.wait_for_timeout(5000)
+
+                    text = visible_text()
+                    eta, actual, status = parse_usps_tracking_text(text)
+                    if not eta and not actual and re.fullmatch(r"tracking", status or "", re.I):
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "delivered": False,
+                            "note": "USPS: manual check required",
+                        }
+                        continue
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "delivered": bool(actual),
+                        "note": f"USPS: {status} {sheet_date(actual or eta)}".strip(),
+                    }
                 elif carrier == "ESTES":
                     try:
                         criteria = page.locator(
@@ -1100,6 +1245,81 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         "eta": eta,
                         "actual": actual,
                         "note": f"TOTAL: {status} {sheet_date(actual or eta)}".strip(),
+                    }
+                elif carrier == "ABF":
+                    if re.search(r"Fetching Data", text, re.I):
+                        try:
+                            page.wait_for_function(
+                                """() => {
+                                    const text = document.body.innerText || "";
+                                    return !/Fetching Data/i.test(text)
+                                        || /CURRENT STATUS|STATUS DETAIL|Estimated|Scheduled|Delivered on/i.test(text);
+                                }""",
+                                timeout=30000,
+                            )
+                        except Exception:
+                            pass
+                        text = visible_text()
+
+                    if re.search(r"technical difficulties", text, re.I):
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "delivered": False,
+                            "note": "ABF: tracking requires visible browser",
+                        }
+                        continue
+
+                    if tracking not in text or not re.search(r"\b(Delivered|In Transit|Estimated|Scheduled|Status)\b", text, re.I):
+                        if page.locator(
+                            "input[aria-label*='Tracking Number' i], input[placeholder*='Tracking' i], input[type='text']"
+                        ).count() == 0:
+                            try:
+                                page.reload(wait_until="domcontentloaded", timeout=60000)
+                                page.wait_for_function(
+                                    """() => /CURRENT STATUS|STATUS DETAIL|Estimated|Scheduled|Delivered on/i.test(document.body.innerText || "")""",
+                                    timeout=30000,
+                                )
+                            except Exception:
+                                pass
+                            text = visible_text()
+                            if tracking not in text or not re.search(r"\b(Delivered|In Transit|Estimated|Scheduled|Status)\b", text, re.I):
+                                updates[row["row_number"]] = {
+                                    "eta": None,
+                                    "actual": None,
+                                    "delivered": False,
+                                    "note": "ABF: Timeout waiting for tracking",
+                                }
+                                continue
+                        try:
+                            page.get_by_role("button", name=re.compile(r"Dismiss alert", re.I)).first.click(timeout=3000)
+                        except Exception:
+                            pass
+                        field = page.locator(
+                            "input[aria-label*='Tracking Number' i], input[placeholder*='Tracking' i], input[type='text']"
+                        ).first
+                        field.fill(tracking, timeout=10000)
+                        page.get_by_role("button", name=re.compile(r"Track Shipment", re.I)).first.click(timeout=10000)
+                        try:
+                            page.wait_for_function(
+                                """(tracking) => {
+                                    const text = document.body.innerText || "";
+                                    return text.includes(tracking)
+                                        && /Delivered|In Transit|Estimated|Scheduled|Status|Shipment/i.test(text);
+                                }""",
+                                arg=tracking,
+                                timeout=25000,
+                            )
+                        except Exception:
+                            page.wait_for_timeout(8000)
+
+                    text = visible_text()
+                    eta, actual, status = parse_abf_tracking_text(text)
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "delivered": bool(actual),
+                        "note": f"ABF: {status} {sheet_date(actual or eta)}".strip(),
                     }
             except Exception as exc:
                 updates[row["row_number"]] = {"eta": None, "actual": None, "note": f"{carrier}: {exc}"}
@@ -2180,7 +2400,9 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
     skipped_today = 0
     errors: list[str] = []
     browser_rows: list[dict] = []
+    xpo_browser_rows: list[dict] = []
     tracking_log_rows: list[list[str]] = []
+    logged = 0
     browser_row_limit = int((os.getenv("TRACKING_BROWSER_ROW_LIMIT") or "100").strip() or "100")
     now = datetime.now()
     tracking_cache = load_tracking_check_cache()
@@ -2215,7 +2437,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             )
             continue
 
-        if actual_existing and not (force_recent and carrier in {"UPS", "ESTES", "TFORCE", "XPO", "TOTAL"}):
+        if actual_existing:
             tracking_log_rows.append(
                 tracking_log_row(
                     now,
@@ -2261,13 +2483,14 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             elif carrier == "R&L" and (not eta_existing or not actual_existing):
                 result = get_rl_tracking(tracking)
                 remember_tracking_checked(tracking_cache, carrier, tracking, now)
-            elif carrier == "GOLD EAGLE TRANSPORTATION" and (not eta_existing or not actual_existing):
+            elif carrier == "DTI" and (not eta_existing or not actual_existing):
                 result = get_dti_tracking(tracking)
                 remember_tracking_checked(tracking_cache, carrier, tracking, now)
-            elif carrier in {"UPS", "ESTES", "TFORCE", "XPO", "TOTAL"}:
+            elif carrier in {"UPS", "USPS", "ESTES", "TFORCE", "XPO", "TOTAL", "ABF"}:
                 needs_browser_check = force_recent or not eta_existing or not actual_existing
-                if needs_browser_check and len(browser_rows) < browser_row_limit:
-                    browser_rows.append(
+                if needs_browser_check and len(browser_rows) + len(xpo_browser_rows) < browser_row_limit:
+                    target_browser_rows = xpo_browser_rows if carrier == "XPO" else browser_rows
+                    target_browser_rows.append(
                         {
                             "row_number": offset,
                             "carrier": carrier,
@@ -2369,9 +2592,12 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             )
         )
 
-    if browser_rows:
-        browser_results = browser_tracking_updates(browser_rows)
-        browser_rows_by_number = {int(row["row_number"]): row for row in browser_rows}
+    def apply_browser_tracking_results(rows_to_apply: list[dict]):
+        nonlocal updated_eta, updated_actual, updated_notes, tracking_log_rows
+        if not rows_to_apply:
+            return
+        browser_results = browser_tracking_updates(rows_to_apply)
+        browser_rows_by_number = {int(row["row_number"]): row for row in rows_to_apply}
         for row_number, result in browser_results.items():
             current_row = rows[row_number - 1] if row_number - 1 < len(rows) else []
             browser_row = browser_rows_by_number.get(int(row_number), {})
@@ -2419,18 +2645,33 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
                 )
             )
 
+    if browser_rows:
+        apply_browser_tracking_results(browser_rows)
+        append_tracking_log_rows(ss, tracking_log_rows)
+        logged += len(tracking_log_rows)
+        tracking_log_rows = []
+
+    if xpo_browser_rows and tracking_log_rows:
+        append_tracking_log_rows(ss, tracking_log_rows)
+        logged += len(tracking_log_rows)
+        tracking_log_rows = []
+
+    if xpo_browser_rows:
+        apply_browser_tracking_results(xpo_browser_rows)
+
     append_tracking_log_rows(ss, tracking_log_rows)
+    logged += len(tracking_log_rows)
 
     return {
         "ok": True,
-        "checked": checked + len(browser_rows),
+        "checked": checked + len(browser_rows) + len(xpo_browser_rows),
         "updated_eta": updated_eta,
         "updated_actual": updated_actual,
         "updated_notes": updated_notes,
-        "logged": len(tracking_log_rows),
+        "logged": logged,
         "skipped_recent": skipped_recent,
         "skipped_today": skipped_today,
-        "browser_checked": len(browser_rows),
+        "browser_checked": len(browser_rows) + len(xpo_browser_rows),
         "errors": errors[:10],
     }
 
