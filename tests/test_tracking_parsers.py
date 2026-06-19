@@ -1,10 +1,15 @@
+from datetime import date
+
 from webapp.server import (
     parse_estes_tracking_text,
+    parse_glovalink_tracking_text,
+    parse_tforce_tracking_text,
     parse_total_tracking_text,
     parse_usps_tracking_text,
     normalize_carrier,
     sheet_date,
     summarize_ups_tracking,
+    tracking_eta_due_for_recheck,
     tracking_url,
 )
 
@@ -67,6 +72,27 @@ def test_usps_normalizes_and_builds_tracking_link():
     assert tracking_url("USPS", "9405511206241461951679") == "https://tools.usps.com/tracking/9405511206241461951679"
 
 
+def test_glovalink_normalizes_and_uses_quicktrack_link():
+    assert normalize_carrier("Glova Link") == "GLOVALINK"
+    assert normalize_carrier("GlovaLink") == "GLOVALINK"
+    assert tracking_url("GLOVALINK", "1542952") == "https://orders.glovalink.com/ENTRACK2/Track/QuickTrack"
+
+
+def test_tfww_normalizes_and_uses_hyperion_tracking_link():
+    assert normalize_carrier("TFWW") == "TFWW"
+    assert normalize_carrier("TFWW Freight") == "TFWW"
+    assert tracking_url("TFWW", "21125969") == "https://tfww.hyperiontms.com/shipmenttracking?loadnumber=21125969"
+
+
+def test_tracking_eta_recheck_window_skips_far_future_eta():
+    today = date(2026, 6, 18)
+
+    assert tracking_eta_due_for_recheck("6/23/2026", current_date=today) is False
+    assert tracking_eta_due_for_recheck("6/20/2026", current_date=today) is True
+    assert tracking_eta_due_for_recheck("6/17/2026", current_date=today) is True
+    assert tracking_eta_due_for_recheck("", current_date=today) is True
+
+
 def test_usps_out_for_delivery_uses_expected_delivery_date():
     text = """
     USPS Tracking
@@ -104,6 +130,30 @@ def test_usps_delivered_uses_actual_date():
     assert status == "Delivered"
 
 
+def test_glovalink_delivered_uses_actual_date():
+    text = """
+    QuickTrack
+    PRO Number 1542952
+    Status Delivered
+    Actual Delivery Date 06/09/2026
+    Estimated Delivery Date 06/10/2026
+    """
+
+    eta, actual, status = parse_glovalink_tracking_text(text)
+
+    assert sheet_date(eta) == "6/10/2026"
+    assert sheet_date(actual) == "6/9/2026"
+    assert status == "Delivered"
+
+
+def test_glovalink_cannot_find_order_is_not_found_status():
+    eta, actual, status = parse_glovalink_tracking_text("QuickTrack Cannot Find Order Search")
+
+    assert eta is None
+    assert actual is None
+    assert status == "Cannot Find Order"
+
+
 def test_estes_out_for_delivery_does_not_fill_actual_date():
     text = """
     Tracking Results
@@ -133,3 +183,25 @@ def test_total_delivery_complete_uses_delivered_date():
     assert eta is None
     assert sheet_date(actual) == "5/5/2026"
     assert status == "DELIVERY COMPLETE"
+
+
+def test_tfww_delivered_uses_delivery_date_as_actual():
+    text = """
+    Shipment Tracking
+    21125969
+    Pickup Information
+    6/12/2026 3:00 PM
+    Status
+    Delivered
+    Delivery
+    6/18/2026 11:00 AM
+    Shipment Detail
+    Load Number:
+    21125969
+    """
+
+    eta, actual, status = parse_tforce_tracking_text(text)
+
+    assert eta is None
+    assert sheet_date(actual) == "6/18/2026"
+    assert status == "Delivered"

@@ -47,6 +47,7 @@ except ImportError as exc:
     quote_central = None
     CENTRAL_IMPORT_ERROR = str(exc)
 from quote_mycarrier import quote_mycarrier
+from quote_priority1 import quote_priority1
 from quote_numark import quote_numark
 from quote_glt import quote_glt
 from quote_schneider import quote_schneider, quote_schneider_async
@@ -158,6 +159,7 @@ RESULT_DISPLAY_ORDER = [
     "GLT",
     "SCHNEIDER",
     "MYCARRIER",
+    "PRIORITY1",
     "TOTAL",
     "CENTRAL TRANSPORTATION",
     "NUMARK",
@@ -188,6 +190,7 @@ TRACKING_YELLOW = {"red": 1.0, "green": 0.949, "blue": 0.8}
 TRACKING_PARTIAL_YELLOW = {"red": 1.0, "green": 1.0, "blue": 0.0}
 TRACKING_GREEN = {"red": 0.851, "green": 0.918, "blue": 0.827}
 TRACKING_CHECK_COOLDOWN = timedelta(hours=2)
+TRACKING_ETA_CHECK_WINDOW_DAYS = 2
 TRACKING_CHECKED_PATTERN = re.compile(r"\(checked\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\)", re.I)
 TRACKING_CACHE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 TRACKING_LOG_HEADERS = [
@@ -535,6 +538,13 @@ def parse_tforce_tracking_text(text: str) -> tuple[Optional[date], Optional[date
 
     status_match = re.search(r"\b(Delivered|In Transit|Picked Up|Out for Delivery)\b", content, re.I)
     status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    if status == "Delivered" and not actual:
+        actual = (
+            parse_first_us_date_near_label(content, r"\bDelivery\b", window=160)
+            or parse_first_us_date_near_label(content, r"Delivery\s+Date", window=160)
+        )
+    if actual:
+        eta = None
     return eta, actual, status
 
 
@@ -641,6 +651,39 @@ def parse_usps_tracking_text(text: str) -> tuple[Optional[date], Optional[date],
     status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
     if actual:
         eta = None
+    return eta, actual, status
+
+
+def parse_glovalink_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    if re.search(r"Cannot\s+Find\s+Order|No\s+(?:tracking|shipment|order)\s+found|not\s+found", content, re.I):
+        return None, None, "Cannot Find Order"
+
+    actual = None
+    eta = (
+        parse_first_us_date_near_label(content, r"Estimated\s+Delivery(?:\s+Date)?", window=220)
+        or parse_first_us_date_near_label(content, r"Scheduled\s+Delivery(?:\s+Date)?", window=220)
+        or parse_first_us_date_near_label(content, r"Expected\s+Delivery(?:\s+Date)?", window=220)
+        or parse_first_us_date_near_label(content, r"\bETA\b", window=160)
+        or parse_first_us_date_near_label(content, r"Appointment\s+Date", window=160)
+    )
+
+    delivered_match = re.search(r"\bDelivered\b[\s\S]{0,240}?(\d{1,2}/\d{1,2}/\d{2,4})", content, re.I)
+    if delivered_match:
+        actual = parse_us_date_flexible(delivered_match.group(1))
+    if not actual:
+        actual = (
+            parse_first_us_date_near_label(content, r"Actual\s+Delivery(?:\s+Date)?", window=220)
+            or parse_first_us_date_near_label(content, r"Delivered(?:\s+On)?", window=220)
+            or parse_first_us_date_near_label(content, r"Delivery\s+Date", window=220)
+        )
+
+    status_match = re.search(
+        r"\b(Delivered|Out for Delivery|In Transit|Picked Up|At Terminal|Arrived(?: at)? Terminal|Appointment Scheduled|Order Received)\b",
+        content,
+        re.I,
+    )
+    status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
     return eta, actual, status
 
 
@@ -754,6 +797,14 @@ def tracking_checked_recently(note: str, now: Optional[datetime] = None) -> bool
     return timedelta(0) <= current - checked_at < TRACKING_CHECK_COOLDOWN
 
 
+def tracking_eta_due_for_recheck(eta_value: str, current_date: Optional[date] = None) -> bool:
+    eta_date = parse_us_date_flexible(eta_value)
+    if not eta_date:
+        return True
+    today = current_date or date.today()
+    return eta_date <= today + timedelta(days=TRACKING_ETA_CHECK_WINDOW_DAYS)
+
+
 def tracking_cache_key(carrier: str, tracking: str) -> str:
     cleaned_tracking = re.sub(r"\s+", "", tracking or "").upper()
     return f"{normalize_carrier(carrier)}::{cleaned_tracking}"
@@ -822,6 +873,8 @@ def tracking_url(carrier: str, tracking: str) -> str:
         return f"https://www.estes-express.com/myestes/shipment-tracking/?query={encoded}&type=PRO"
     if normalized == "TFORCE":
         return f"https://www.tforcefreight.com/ltl/apps/Tracking?proNumbers={encoded}%3B"
+    if normalized == "TFWW":
+        return f"https://tfww.hyperiontms.com/shipmenttracking?loadnumber={encoded}"
     if normalized == "XPO":
         return f"https://ext-web.ltl-xpo.com/public-app/shipments?referenceNumber={encoded}"
     if normalized == "TOTAL":
@@ -834,6 +887,8 @@ def tracking_url(carrier: str, tracking: str) -> str:
         return "https://my.dtitrans.com/shipmenttracking"
     if normalized == "NUMARK":
         return f"http://tracking.numarktransportation.net/cgibin/wbprotrk?wbfb={encoded}&wbscac="
+    if normalized == "GLOVALINK":
+        return "https://orders.glovalink.com/ENTRACK2/Track/QuickTrack"
     return ""
 
 
@@ -849,6 +904,8 @@ def normalize_carrier(value: str) -> str:
         return "ESTES"
     if carrier in {"TFORCE", "T FORCE", "TFORCE FREIGHT", "T FORCE FREIGHT", "TFORCE FREIGHT INC"}:
         return "TFORCE"
+    if carrier in {"TFWW", "T F W W", "TFWW FREIGHT"}:
+        return "TFWW"
     if carrier in {"XPO", "XPO LTL", "XPO LOGISTICS"}:
         return "XPO"
     if carrier in {"TOTAL", "TOTAL TRANSPORTATION", "TOTAL TRANSPORTATION AND DISTRIBUTION", "TOTAL TRANSPORTATION & DISTRIBUTION"}:
@@ -857,6 +914,8 @@ def normalize_carrier(value: str) -> str:
         return "ABF"
     if carrier in {"NUMARK"}:
         return "NUMARK"
+    if carrier in {"GLOVALINK", "GLOVA LINK", "GLOVA-LINK", "GLOVA LINK FREIGHT", "GLOVALINK FREIGHT"}:
+        return "GLOVALINK"
     if carrier == "GOLD EAGLE TRANSPORTATION" or re.match(r"^DTI(?:\b|[\s/\\-])", carrier):
         return "DTI"
     return carrier
@@ -1047,6 +1106,53 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         "delivered": bool(actual),
                         "note": f"USPS: {status} {sheet_date(actual or eta)}".strip(),
                     }
+                elif carrier == "GLOVALINK":
+                    if tracking not in text or re.search(r"\bQuickTrack\b", text, re.I):
+                        try:
+                            field = page.locator(
+                                "input[name*='pro' i], input[id*='pro' i], input[placeholder*='pro' i], input[type='text'], input:not([type])"
+                            ).first
+                            field.fill(tracking, timeout=10000)
+                            try:
+                                page.locator("button, input[type='submit'], [role='button']").filter(
+                                    has_text=re.compile(r"search", re.I)
+                                ).first.click(timeout=10000)
+                            except Exception:
+                                field.press("Enter", timeout=5000)
+                            page.wait_for_timeout(8000)
+                            text = visible_text()
+                        except Exception:
+                            pass
+
+                    try:
+                        page.wait_for_function(
+                            """(tracking) => {
+                                const text = document.body.innerText || "";
+                                return text.includes(tracking)
+                                    || /Cannot Find Order|Delivered|In Transit|Estimated|Scheduled|Out for Delivery|Status/i.test(text);
+                            }""",
+                            arg=tracking,
+                            timeout=20000,
+                        )
+                    except Exception:
+                        page.wait_for_timeout(5000)
+
+                    text = visible_text()
+                    eta, actual, status = parse_glovalink_tracking_text(text)
+                    if not eta and not actual and re.fullmatch(r"tracking", status or "", re.I):
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "delivered": False,
+                            "note": "GlovaLink: manual check required",
+                        }
+                        continue
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "delivered": bool(actual),
+                        "note": f"GlovaLink: {status} {sheet_date(actual or eta)}".strip(),
+                    }
                 elif carrier == "ESTES":
                     try:
                         criteria = page.locator(
@@ -1144,22 +1250,52 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         "delivered": bool(actual),
                         "note": f"Estes: {status} {sheet_date(actual or eta)}".strip(),
                     }
-                elif carrier == "TFORCE":
+                elif carrier in {"TFORCE", "TFWW"}:
+                    if carrier == "TFWW" and (
+                        tracking not in text
+                        or not re.search(r"\b(Delivered|In Transit|Estimated Delivery|Out for Delivery|Pickup Information)\b", text, re.I)
+                    ):
+                        try:
+                            search_type = page.locator("select").first
+                            if search_type.count() > 0:
+                                search_type.evaluate(
+                                    """(sel) => {
+                                        const options = Array.from(sel.options || []);
+                                        const match = options.find((opt) => /load\\s*number/i.test(opt.textContent || opt.value || ""));
+                                        if (!match) return;
+                                        sel.value = match.value;
+                                        match.selected = true;
+                                        sel.dispatchEvent(new Event("input", { bubbles: true }));
+                                        sel.dispatchEvent(new Event("change", { bubbles: true }));
+                                    }"""
+                                )
+                        except Exception:
+                            pass
+                        try:
+                            field = page.locator("textarea, input[type='text'], input:not([type])").first
+                            field.fill(tracking, timeout=10000)
+                            page.locator("button:has-text('Track'), input[value='Track']").first.click(timeout=10000)
+                            page.wait_for_timeout(6000)
+                            text = visible_text()
+                        except Exception:
+                            pass
+
                     try:
                         page.wait_for_function(
-                            """() => /PRO\\(S\\) RELATED TO|\\b(In Transit|Delivered|Estimated Delivery|Out for Delivery)\\b/i.test(document.body.innerText || "")""",
+                            """() => /PRO\\(S\\) RELATED TO|Pickup Information|Shipment Detail|\\b(In Transit|Delivered|Estimated Delivery|Out for Delivery)\\b/i.test(document.body.innerText || "")""",
                             timeout=25000,
                         )
                     except Exception:
                         page.wait_for_timeout(8000)
 
-                    text = page.locator("body").inner_text(timeout=10000)
+                    text = visible_text()
                     eta, actual, status = parse_tforce_tracking_text(text)
+                    carrier_label = "TFWW" if carrier == "TFWW" else "TForce"
                     updates[row["row_number"]] = {
                         "eta": eta,
                         "actual": actual,
                         "delivered": bool(actual),
-                        "note": f"TForce: {status} {sheet_date(actual or eta)}".strip(),
+                        "note": f"{carrier_label}: {status} {sheet_date(actual or eta)}".strip(),
                     }
                 elif carrier == "XPO":
                     text = page.locator("body").inner_text(timeout=10000)
@@ -1821,6 +1957,24 @@ def run_mycarrier_job(quote_data: dict, *, headless: bool = True, slow_mo: int =
         }
 
 
+def run_priority1_job(quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
+    try:
+        raw_priority1_results = quote_priority1(quote_data, headless=headless, slow_mo=slow_mo)
+        wrapped_priority1 = wrap_priority1_results(raw_priority1_results, quote_data)
+        return {
+            "carrier": "PRIORITY1",
+            "wrapped": wrapped_priority1,
+            "covered_direct_carriers": set(),
+        }
+    except Exception as exc:
+        print(f"PRIORITY1 quote failed: {exc}", flush=True)
+        return {
+            "carrier": "PRIORITY1",
+            "wrapped": skipped_result("PRIORITY1", quote_data, exc),
+            "covered_direct_carriers": set(),
+        }
+
+
 def run_direct_carrier_job(carrier_name: str, fn, quote_data: dict, *, headless: bool = True, slow_mo: int = 0):
     try:
         result = fn(quote_data, headless=headless, slow_mo=slow_mo)
@@ -1883,6 +2037,7 @@ def available_quote_targets() -> list[dict[str, str]]:
             [
                 {"value": "SCHNEIDER", "label": "SCHNEIDER"},
                 {"value": "MYCARRIER", "label": "MYCARRIER"},
+                {"value": "PRIORITY1", "label": "PRIORITY1"},
             ]
         )
         targets.extend({"value": carrier_name, "label": carrier_name} for carrier_name, _ in carrier_queue())
@@ -2106,6 +2261,26 @@ def wrap_schneider_results(raw_results: list[dict], quote_data: dict):
     return result_with_inputs(
         {
             "carrier": "SCHNEIDER",
+            "price": cheapest.get("price") if cheapest else None,
+            "transit_days": cheapest.get("transit_days") if cheapest else None,
+            "service_level": cheapest.get("service_level") if cheapest else "",
+            "time": cheapest.get("time") if cheapest else "",
+            "broker_quotes": raw_results,
+            "broker_quote_count": len(raw_results),
+        },
+        quote_data,
+    )
+
+
+def wrap_priority1_results(raw_results: list[dict], quote_data: dict):
+    cheapest = None
+    priced = [item for item in raw_results if item.get("price") not in (None, "", 0, 0.0)]
+    if priced:
+        cheapest = min(priced, key=lambda item: float(item.get("price")))
+
+    return result_with_inputs(
+        {
+            "carrier": "PRIORITY1",
             "price": cheapest.get("price") if cheapest else None,
             "transit_days": cheapest.get("transit_days") if cheapest else None,
             "service_level": cheapest.get("service_level") if cheapest else "",
@@ -2398,6 +2573,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
     updated_notes = 0
     skipped_recent = 0
     skipped_today = 0
+    skipped_eta_not_due = 0
     errors: list[str] = []
     browser_rows: list[dict] = []
     xpo_browser_rows: list[dict] = []
@@ -2454,6 +2630,25 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             )
             continue
 
+        eta_date = parse_us_date_flexible(eta_existing)
+        if eta_existing and eta_date and not tracking_eta_due_for_recheck(eta_existing, now.date()):
+            skipped_eta_not_due += 1
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    "SKIPPED_ETA_NOT_DUE",
+                    offset,
+                    carrier,
+                    tracking,
+                    eta_existing,
+                    eta_existing,
+                    actual_existing,
+                    actual_existing,
+                    f"ETA {eta_existing} is more than {TRACKING_ETA_CHECK_WINDOW_DAYS} days away",
+                )
+            )
+            continue
+
         if not force_recent and (
             tracking_checked_recently(agent_update_existing, now)
             or cached_tracking_checked_recently(tracking_cache, carrier, tracking, now)
@@ -2486,7 +2681,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             elif carrier == "DTI" and (not eta_existing or not actual_existing):
                 result = get_dti_tracking(tracking)
                 remember_tracking_checked(tracking_cache, carrier, tracking, now)
-            elif carrier in {"UPS", "USPS", "ESTES", "TFORCE", "XPO", "TOTAL", "ABF"}:
+            elif carrier in {"UPS", "USPS", "GLOVALINK", "ESTES", "TFORCE", "TFWW", "XPO", "TOTAL", "ABF"}:
                 needs_browser_check = force_recent or not eta_existing or not actual_existing
                 if needs_browser_check and len(browser_rows) + len(xpo_browser_rows) < browser_row_limit:
                     target_browser_rows = xpo_browser_rows if carrier == "XPO" else browser_rows
@@ -2671,6 +2866,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
         "logged": logged,
         "skipped_recent": skipped_recent,
         "skipped_today": skipped_today,
+        "skipped_eta_not_due": skipped_eta_not_due,
         "browser_checked": len(browser_rows) + len(xpo_browser_rows),
         "errors": errors[:10],
     }
@@ -2734,6 +2930,13 @@ async def run_quote(payload: InputPayload):
                             thread_job(run_mycarrier_job, quote_data, **browser_options),
                         )
                     )
+                if quote_target == "PRIORITY1":
+                    initial_jobs.append(
+                        (
+                            "PRIORITY1",
+                            thread_job(run_priority1_job, quote_data, **browser_options),
+                        )
+                    )
 
             async for _, job_result in run_jobs_sequentially(initial_jobs):
                 upsert_result(result_map, job_result["wrapped"])
@@ -2744,16 +2947,6 @@ async def run_quote(payload: InputPayload):
                 queued_direct = []
                 for carrier_name, fn in direct_carriers:
                     if selected_direct_target and carrier_name != selected_direct_target:
-                        continue
-                    if run_all_targets and carrier_name in covered_direct_carriers:
-                        upsert_result(
-                            result_map,
-                            skipped_result(
-                                carrier_name,
-                                quote_data,
-                                RuntimeError("Covered by MyCarrier results."),
-                            ),
-                        )
                         continue
                     if fn is None:
                         upsert_result(
@@ -2783,7 +2976,7 @@ async def run_quote(payload: InputPayload):
                     existing_result = result_map.get(carrier_name)
                     if not existing_result or not should_retry_skipped_result(existing_result):
                         continue
-                    if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
+                    if fn is None:
                         continue
                     retried_job = await asyncio.to_thread(run_direct_carrier_job, carrier_name, fn, quote_data, **browser_options)
                     if retried_job.get("direct_result") is not None:
@@ -2794,6 +2987,10 @@ async def run_quote(payload: InputPayload):
                     else:
                         retried_result["retry_attempted"] = True
                     upsert_result(result_map, retried_result)
+
+            if not WEBAPP_GLT_ONLY_DEBUG and run_all_targets:
+                priority1_result = await asyncio.to_thread(run_priority1_job, quote_data, **browser_options)
+                upsert_result(result_map, priority1_result["wrapped"])
 
             results = ordered_results(result_map)
 
@@ -2873,6 +3070,13 @@ async def run_quote_stream(payload: InputPayload):
                                 thread_job(run_mycarrier_job, quote_data, **browser_options),
                             )
                         )
+                    if quote_target == "PRIORITY1":
+                        initial_jobs.append(
+                            (
+                                "PRIORITY1",
+                                thread_job(run_priority1_job, quote_data, **browser_options),
+                            )
+                        )
 
                 if initial_jobs:
                     yield stream_line({"type": "status", "message": "Quoting broker portals one at a time..."})
@@ -2907,23 +3111,6 @@ async def run_quote_stream(payload: InputPayload):
                     direct_jobs = []
                     for carrier_name, fn in direct_carriers:
                         if selected_direct_target and carrier_name != selected_direct_target:
-                            continue
-                        if run_all_targets and carrier_name in covered_direct_carriers:
-                            wrapped = skipped_result(
-                                carrier_name,
-                                quote_data,
-                                RuntimeError("Covered by MyCarrier results."),
-                            )
-                            upsert_result(result_map, wrapped)
-                            yield stream_line(
-                                {
-                                    "type": "result",
-                                    "run_id": run_id,
-                                    "batch_id": broker_result["batch_id"],
-                                    "result": wrapped,
-                                    "results": ordered_results(result_map),
-                                }
-                            )
                             continue
                         if fn is None:
                             wrapped = skipped_result(
@@ -2987,7 +3174,7 @@ async def run_quote_stream(payload: InputPayload):
                         existing_result = result_map.get(carrier_name)
                         if not existing_result or not should_retry_skipped_result(existing_result):
                             continue
-                        if (run_all_targets and carrier_name in covered_direct_carriers) or fn is None:
+                        if fn is None:
                             continue
                         yield stream_line(
                             {
@@ -3014,6 +3201,20 @@ async def run_quote_stream(payload: InputPayload):
                                 "results": results,
                             }
                         )
+
+                if not WEBAPP_GLT_ONLY_DEBUG and run_all_targets:
+                    yield stream_line({"type": "status", "message": "Quoting Priority1 broker portal..."})
+                    priority1_result = await asyncio.to_thread(run_priority1_job, quote_data, **browser_options)
+                    upsert_result(result_map, priority1_result["wrapped"])
+                    yield stream_line(
+                        {
+                            "type": "result",
+                            "run_id": run_id,
+                            "batch_id": broker_result["batch_id"],
+                            "result": priority1_result["wrapped"],
+                            "results": ordered_results(result_map),
+                        }
+                    )
 
                 results = ordered_results(result_map)
                 await asyncio.to_thread(update_profile_last_quote, payload.company_name, results, profile_input_data_from_payload(payload))

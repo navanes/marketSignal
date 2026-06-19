@@ -296,6 +296,109 @@ def wait_for_select_option_text(city_select_locator, desired_text: str, timeout_
     return False
 
 
+def normalize_freight_class(value) -> str:
+    text = str(value or "").strip().upper()
+    text = re.sub(r"(?i)\b(class|freight)\b", "", text)
+    text = re.sub(r"[^0-9.]+", "", text)
+    if not text:
+        return ""
+    try:
+        number = float(text)
+        if number.is_integer():
+            return str(int(number))
+        return f"{number:g}"
+    except:
+        return text.lstrip("0") or "0"
+
+
+def select_total_freight_class(class_select, freight_class: str):
+    desired = str(freight_class or "").strip()
+    desired_norm = normalize_freight_class(desired)
+    if not desired_norm:
+        return {"ok": False, "selected": "", "options": []}
+
+    wait_for_select_options(class_select, timeout_ms=8000)
+
+    # Avoid Playwright's long select_option retry loop when the carrier formats
+    # option values differently from the visible freight class text.
+    try:
+        return class_select.evaluate(
+            """
+            (sel, desiredNorm) => {
+                const normalize = (value) => {
+                    let text = String(value || "").toUpperCase();
+                    text = text.replace(/\\b(CLASS|FREIGHT)\\b/g, "");
+                    text = text.replace(/[^0-9.]+/g, "");
+                    if (!text) return "";
+                    const number = Number(text);
+                    if (Number.isFinite(number)) {
+                        return Number.isInteger(number) ? String(number) : String(Number(number.toPrecision(10)));
+                    }
+                    return text.replace(/^0+/, "") || "0";
+                };
+                const desiredNumber = Number(desiredNorm);
+                const options = Array.from(sel.options || []);
+                let rounded = false;
+                let match = options.find((opt) =>
+                    normalize(opt.textContent) === desiredNorm ||
+                    normalize(opt.value) === desiredNorm
+                );
+                if (!match && Number.isFinite(desiredNumber)) {
+                    const numericOptions = options
+                        .map((opt, index) => ({
+                            opt,
+                            index,
+                            number: Number(normalize(opt.textContent) || normalize(opt.value)),
+                        }))
+                        .filter((item) => Number.isFinite(item.number));
+                    numericOptions.sort((a, b) => a.number - b.number);
+                    const ceiling = numericOptions.find((item) => item.number >= desiredNumber);
+                    const fallback = ceiling || numericOptions[numericOptions.length - 1];
+                    if (fallback) {
+                        match = fallback.opt;
+                        rounded = normalize(match.textContent) !== desiredNorm && normalize(match.value) !== desiredNorm;
+                    }
+                }
+                if (!match) {
+                    return {
+                        ok: false,
+                        selected: sel.options[sel.selectedIndex]?.textContent?.trim() || "",
+                        options: options.map((opt) => (opt.textContent || opt.value || "").trim()),
+                    };
+                }
+                sel.value = match.value;
+                match.selected = true;
+                sel.selectedIndex = options.indexOf(match);
+                sel.dispatchEvent(new Event("input", { bubbles: true }));
+                sel.dispatchEvent(new Event("change", { bubbles: true }));
+                return {
+                    ok: true,
+                    selected: sel.options[sel.selectedIndex]?.textContent?.trim() || "",
+                    rounded,
+                    requested: desiredNorm,
+                    options: options.map((opt) => (opt.textContent || opt.value || "").trim()),
+                };
+            }
+            """,
+            desired_norm,
+        )
+    except:
+        pass
+
+    candidates = [desired, desired.zfill(3), desired_norm, desired_norm.zfill(3)]
+    for candidate in dict.fromkeys(candidates):
+        for kwargs in ({"value": candidate}, {"label": candidate}):
+            try:
+                class_select.select_option(**kwargs, timeout=1000)
+                selected = selected_option_text(class_select)
+                if normalize_freight_class(selected) == desired_norm:
+                    return {"ok": True, "selected": selected, "options": []}
+            except:
+                pass
+
+    return {"ok": False, "selected": selected_option_text(class_select), "options": []}
+
+
 def click_zip_search(label_locator, page):
     try:
         zip_search = label_locator.locator("xpath=following::a[contains(., 'Zip Search')][1]").first
@@ -440,19 +543,24 @@ def fill_total_line_row(header, page, row_index: int, freight_class: str, item: 
     slow_type(weight_input, item["weight"], delay=55)
     page.wait_for_timeout(200)
 
-    fc = str(freight_class).strip()
-    tries = [fc, fc.zfill(3)]
-    selected = False
-    for opt in tries:
+    class_result = select_total_freight_class(class_select, freight_class)
+    if not class_result.get("ok"):
         try:
-            class_select.select_option(opt)
-            selected = True
-            break
+            options = class_select.locator("option").all_inner_texts()
         except:
-            pass
-    if not selected:
+            options = class_result.get("options", [])
         page.screenshot(path="class_select_failed.png", full_page=True)
-        raise RuntimeError("Could not select freight class. Saved class_select_failed.png")
+        raise RuntimeError(
+            f"Could not select freight class {freight_class}. "
+            f"Current selection: {class_result.get('selected') or selected_option_text(class_select) or 'none'}. "
+            f"Options seen: {options[:20]}. "
+            "Saved class_select_failed.png"
+        )
+    if class_result.get("rounded"):
+        print(
+            f"TOTAL freight class {class_result.get('requested') or freight_class} "
+            f"rounded up to available option {class_result.get('selected')}"
+        )
 
     page.wait_for_timeout(200)
     slow_type(length_input, item["length"], delay=45)

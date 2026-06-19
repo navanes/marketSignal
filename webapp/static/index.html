@@ -2070,6 +2070,7 @@
       "GLT LOGISTICS": "https://myportal.goglt.com/login",
       "MYCARRIER": "https://app.mycarrierpackaging.com/",
       "SCHNEIDER": "https://freightpower.schneider.com/shipper",
+      "PRIORITY1": "https://dashboard.priority1.com/customerdashboard",
       "TOTAL": "https://www.totalms.com/",
       "TOTAL TRANSPORTATION": "https://www.totalms.com/",
       "NUMARK": "https://numarktransportation.net/",
@@ -3715,7 +3716,7 @@
 
     updateTrackingBtn.addEventListener("click", async () => {
       updateTrackingBtn.disabled = true;
-      setStatus("Updating TRACKING tab ETA/actual dates. UPS and Estes may take a moment...", "");
+      setStatus("Updating TRACKING tab ETA/actual dates. Browser carriers may take a moment...", "");
       try {
         const data = await postJson("/api/update-tracking", { force_recent: true });
         const parts = [
@@ -3731,6 +3732,9 @@
         }
         if (data.skipped_today) {
           parts.push(`skipped today ${data.skipped_today}`);
+        }
+        if (data.skipped_eta_not_due) {
+          parts.push(`skipped ETA not due ${data.skipped_eta_not_due}`);
         }
         if (data.logged) {
           parts.push(`logged ${data.logged}`);
