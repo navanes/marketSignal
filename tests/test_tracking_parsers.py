@@ -3,6 +3,7 @@ from datetime import date
 from webapp.server import (
     parse_estes_tracking_text,
     parse_glovalink_tracking_text,
+    parse_roadrunner_tracking_text,
     parse_tforce_tracking_text,
     parse_total_tracking_text,
     parse_usps_tracking_text,
@@ -59,6 +60,30 @@ def test_ups_all_packages_delivered_uses_latest_actual_date():
     assert result["note"] == "UPS: All 2 packages delivered 4/30/2026"
 
 
+def test_ups_current_all_packages_panel_marks_two_delivered_boxes_complete():
+    text = """
+    Tracking Details
+    Delivered
+    Monday, June 22 Inside Delivery at 11:13 A.M.
+    Shipment Details
+    1 of 2 Piece Shipment
+    All Packages in this Shipment
+    1Z0JK2750312165202
+    Delivered
+    Delivered On: Monday, June 22 at 11:13 A.M. - Inside Delivery
+    1Z0JK2750306422212
+    Delivered
+    Delivered On: Monday, June 22 at 11:13 A.M. - Inside Delivery
+    Shipment Details
+    """
+
+    result = summarize_ups_tracking(text, "1Z0JK2750312165202")
+
+    assert result["partial"] is False
+    assert sheet_date(result["actual"]) == "6/22/2026"
+    assert result["note"] == "UPS: All 2 packages delivered 6/22/2026"
+
+
 def test_ups_samples_normalizes_to_ups_for_tracking():
     assert normalize_carrier("UPS(SAMPLES)") == "UPS"
     assert normalize_carrier("UPS(SAMPLE)") == "UPS"
@@ -82,6 +107,13 @@ def test_tfww_normalizes_and_uses_hyperion_tracking_link():
     assert normalize_carrier("TFWW") == "TFWW"
     assert normalize_carrier("TFWW Freight") == "TFWW"
     assert tracking_url("TFWW", "21125969") == "https://tfww.hyperiontms.com/shipmenttracking?loadnumber=21125969"
+
+
+def test_roadrunner_normalizes_and_uses_home_tracking_link():
+    assert normalize_carrier("Roadrunner") == "ROADRUNNER"
+    assert normalize_carrier("Roadrunner Freight") == "ROADRUNNER"
+    assert normalize_carrier("RRTS") == "ROADRUNNER"
+    assert tracking_url("Roadrunner", "453030439") == "https://freight.rrts.com/Pages/Home.aspx"
 
 
 def test_tracking_eta_recheck_window_skips_far_future_eta():
@@ -130,6 +162,31 @@ def test_usps_delivered_uses_actual_date():
     assert status == "Delivered"
 
 
+def test_roadrunner_in_transit_uses_estimated_delivery():
+    text = """
+    You're seeing the same order status information that our Customer Service Team can access.
+    Shipment Status
+    In Transit
+    Estimated Delivery
+    07/08/2026
+    Estimated between
+    8:00 AM - 5:00 PM
+    Tracking ID
+    453030439
+    From
+    SYLMAR, CA
+    07/02/2026, 01:53 PM
+    We Have Your Shipment
+    On the way
+    """
+
+    eta, actual, status = parse_roadrunner_tracking_text(text)
+
+    assert sheet_date(eta) == "7/8/2026"
+    assert actual is None
+    assert status == "In Transit"
+
+
 def test_glovalink_delivered_uses_actual_date():
     text = """
     QuickTrack
@@ -168,6 +225,39 @@ def test_estes_out_for_delivery_does_not_fill_actual_date():
     assert sheet_date(eta) == "5/7/2026"
     assert actual is None
     assert status == "Out For Delivery"
+
+
+def test_estes_delivered_uses_delivery_date_not_pickup_date():
+    text = """
+    Tracking Results
+    PRO Number 2101269012
+    Pickup Date 06/17/2026
+    Estimated Delivery Guaranteed by 12 PM
+    Status Delivered
+    Delivery Completed - OK
+    Delivery Date 06/24/2026
+    """
+
+    eta, actual, status = parse_estes_tracking_text(text)
+
+    assert eta is None
+    assert sheet_date(actual) == "6/24/2026"
+    assert status == "Delivered"
+
+
+def test_estes_delivered_without_expanded_details_does_not_use_pickup_as_eta():
+    text = """
+    Tracking Results
+    PRO Number 2101269013
+    Pickup Date 06/16/2026
+    Status Delivered
+    """
+
+    eta, actual, status = parse_estes_tracking_text(text)
+
+    assert eta is None
+    assert actual is None
+    assert status == "Delivered"
 
 
 def test_total_delivery_complete_uses_delivered_date():

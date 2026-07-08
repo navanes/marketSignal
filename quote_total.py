@@ -942,7 +942,32 @@ def write_result(spreadsheet, carrier_name: str, result: dict, origin_city: str,
             target_row = idx
             break
     if not target_row:
-        raise RuntimeError(f"Could not find {carrier_name} row for batch {batch_id}.")
+        batch_rows = [
+            idx
+            for idx, row in enumerate(values, start=1)
+            if idx > 1 and len(row) > 0 and row[0].strip() == batch_id
+        ]
+        target_row = (max(batch_rows) + 1) if batch_rows else max(len(values) + 1, 2)
+        template_row = values[batch_rows[0] - 1] if batch_rows else []
+        new_row = [""] * 13
+        new_row[0] = batch_id
+        new_row[1] = carrier_name
+        if len(template_row) > 5:
+            new_row[5] = template_row[5]
+        if len(template_row) > 6:
+            new_row[6] = template_row[6]
+        if len(template_row) > 7:
+            new_row[7] = template_row[7]
+        if len(template_row) > 8:
+            new_row[8] = template_row[8]
+        if len(template_row) > 9:
+            new_row[9] = template_row[9]
+        if len(template_row) > 10:
+            new_row[10] = template_row[10]
+        if len(template_row) > 11:
+            new_row[11] = template_row[11]
+        new_row[12] = "Pending quote: direct carrier row added automatically"
+        with_gsheets_retry(lambda: br.insert_row(new_row, target_row, value_input_option="USER_ENTERED"))
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     note_parts = ["Auto-quoted."]

@@ -241,14 +241,14 @@
       display: flex;
       gap: 12px;
       align-items: center;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
     }
 
     .run-target-picker {
       position: relative;
-      min-width: 260px;
+      min-width: 220px;
       max-width: 100%;
-      flex: 1 1 260px;
+      flex: 1 1 220px;
     }
 
     .run-target-trigger {
@@ -311,6 +311,35 @@
     .target-dropdown {
       min-width: 100%;
       max-width: 360px;
+    }
+
+    .target-actions {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      padding: 2px 0 6px;
+      background: #fff;
+    }
+
+    .target-action {
+      min-height: 34px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #f7fbf5;
+      color: var(--brand);
+      font-size: 13px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .target-action:hover {
+      transform: none;
+      background: #eef6ec;
+      border-color: #98b9a7;
     }
 
     .target-option {
@@ -562,6 +591,11 @@
       box-shadow: 0 18px 40px rgba(31, 54, 34, 0.12);
       display: none;
       padding: 6px;
+    }
+
+    .company-dropdown.open-up {
+      top: auto;
+      bottom: calc(100% + 6px);
     }
 
     .company-dropdown.show {
@@ -1679,13 +1713,19 @@
         <div class="note">Freight class is calculated automatically from the dimensions and weight shown above.</div>
 
         <div class="actions">
-          <div id="quote-target-picker" class="run-target-picker">
-            <input id="quote-target" name="quote_target" type="hidden" value="ALL" />
-            <button id="quote-target-trigger" class="run-target-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="quote-target-dropdown">
-              <span id="quote-target-label" class="run-target-label">All Carriers + Brokers</span>
+          <div id="broker-target-picker" class="run-target-picker">
+            <button id="broker-target-trigger" class="run-target-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="broker-target-dropdown">
+              <span id="broker-target-label" class="run-target-label">Brokers: MyCarrier</span>
               <span class="run-target-chevron" aria-hidden="true"></span>
             </button>
-            <div id="quote-target-dropdown" class="company-dropdown target-dropdown" role="listbox" aria-label="Quote target"></div>
+            <div id="broker-target-dropdown" class="company-dropdown target-dropdown" role="listbox" aria-label="Broker portals"></div>
+          </div>
+          <div id="direct-target-picker" class="run-target-picker">
+            <button id="direct-target-trigger" class="run-target-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="direct-target-dropdown">
+              <span id="direct-target-label" class="run-target-label">Carriers: All</span>
+              <span class="run-target-chevron" aria-hidden="true"></span>
+            </button>
+            <div id="direct-target-dropdown" class="company-dropdown target-dropdown" role="listbox" aria-label="Individual carriers"></div>
           </div>
           <div id="browser-visibility-picker" class="run-target-picker">
             <input id="browser-visibility" name="browser_visibility" type="hidden" value="CONCEAL" />
@@ -1813,11 +1853,14 @@
   <script>
     const form = document.getElementById("quote-form");
     const runBtn = document.getElementById("run-btn");
-    const quoteTargetEl = document.getElementById("quote-target");
-    const quoteTargetPickerEl = document.getElementById("quote-target-picker");
-    const quoteTargetTriggerEl = document.getElementById("quote-target-trigger");
-    const quoteTargetLabelEl = document.getElementById("quote-target-label");
-    const quoteTargetDropdownEl = document.getElementById("quote-target-dropdown");
+    const brokerTargetPickerEl = document.getElementById("broker-target-picker");
+    const brokerTargetTriggerEl = document.getElementById("broker-target-trigger");
+    const brokerTargetLabelEl = document.getElementById("broker-target-label");
+    const brokerTargetDropdownEl = document.getElementById("broker-target-dropdown");
+    const directTargetPickerEl = document.getElementById("direct-target-picker");
+    const directTargetTriggerEl = document.getElementById("direct-target-trigger");
+    const directTargetLabelEl = document.getElementById("direct-target-label");
+    const directTargetDropdownEl = document.getElementById("direct-target-dropdown");
     const browserVisibilityEl = document.getElementById("browser-visibility");
     const browserVisibilityPickerEl = document.getElementById("browser-visibility-picker");
     const browserVisibilityTriggerEl = document.getElementById("browser-visibility-trigger");
@@ -1882,7 +1925,10 @@
     let currentAbortController = null;
     let profiles = {};
     let visibleProfileNames = [];
-    let quoteTargets = [{ value: "ALL", label: "All Carriers + Brokers" }];
+    let brokerTargets = [{ value: "MYCARRIER", label: "MyCarrier" }];
+    let directCarrierTargets = [];
+    let selectedBrokerTargets = new Set(["MYCARRIER"]);
+    let selectedDirectCarrierTargets = new Set();
     let browserVisibilityOptions = [
       { value: "CONCEAL", label: "Do Not Reveal" },
       { value: "REVEAL", label: "Reveal Process" },
@@ -1975,14 +2021,6 @@
         .trim();
     }
 
-    function normalizeQuoteTargetValue(value) {
-      return String(value || "ALL").trim().toUpperCase() || "ALL";
-    }
-
-    function isAllQuoteTarget(value) {
-      return normalizeQuoteTargetValue(value) === "ALL";
-    }
-
     function normalizeSignatureText(value) {
       return String(value || "").trim();
     }
@@ -2052,8 +2090,14 @@
 
     function prepareRunContext(payload) {
       const signature = quoteSignature(payload);
-      const target = normalizeQuoteTargetValue(payload?.quote_target);
-      const appendMode = !isAllQuoteTarget(target) && latestResults.length > 0 && activeQuoteSignature === signature;
+      const brokers = Array.isArray(payload?.broker_targets) ? payload.broker_targets : [];
+      const direct = Array.isArray(payload?.direct_carrier_targets) ? payload.direct_carrier_targets : [];
+      const isDefaultRun = (
+        brokers.length === 1
+        && brokers[0] === "MYCARRIER"
+        && direct.length === directCarrierTargets.length
+      );
+      const appendMode = !isDefaultRun && latestResults.length > 0 && activeQuoteSignature === signature;
 
       if (!appendMode) {
         latestResults = [];
@@ -2061,7 +2105,7 @@
       }
 
       activeQuoteSignature = signature;
-      pendingRunContext = { signature, target, appendMode, payload: { ...payload } };
+      pendingRunContext = { signature, brokers, direct, appendMode, payload: { ...payload } };
       return pendingRunContext;
     }
 
@@ -2079,6 +2123,8 @@
       "TFORCE": "https://www.tforcefreight.com/",
       "TFORCE FREIGHT": "https://www.tforcefreight.com/",
       "TFORCE FREIGHT INC": "https://www.tforcefreight.com/",
+      "GLOVALINK": "https://orders.glovalink.com/ENTRACK2/Home/Login",
+      "GLOVA LINK": "https://orders.glovalink.com/ENTRACK2/Home/Login",
       "XPO": "https://www.xpo.com/",
       "XPO LTL": "https://www.xpo.com/",
       "ABF": "https://arcb.com/abf-freight",
@@ -2769,7 +2815,8 @@
 
     function setRunningState(isRunning) {
       runBtn.disabled = isRunning;
-      quoteTargetTriggerEl.disabled = isRunning;
+      brokerTargetTriggerEl.disabled = isRunning;
+      directTargetTriggerEl.disabled = isRunning;
       browserVisibilityTriggerEl.disabled = isRunning;
       updateTrackingBtn.disabled = isRunning;
       saveProfileBtn.disabled = isRunning;
@@ -2780,7 +2827,8 @@
         setLoaderMessage("Preparing quote run...");
       }
       if (isRunning) {
-        hideQuoteTargetDropdown();
+        hideTargetDropdown(brokerTargetPickerEl, brokerTargetDropdownEl, brokerTargetTriggerEl);
+        hideTargetDropdown(directTargetPickerEl, directTargetDropdownEl, directTargetTriggerEl);
         hideBrowserVisibilityDropdown();
       }
     }
@@ -2927,6 +2975,9 @@
       payload.pieces = Number(payload.pieces);
       payload.pallet_items = usePalletItems ? palletItems : [];
       payload.company_name = (profileSelectEl.value || profileNameEl.value || "").trim();
+      payload.broker_targets = Array.from(selectedBrokerTargets);
+      payload.direct_carrier_targets = Array.from(selectedDirectCarrierTargets);
+      delete payload.quote_target;
       if (usePalletItems) {
         payload.weight_lb = palletItems.reduce((sum, item) => sum + item.weight_lb, 0);
         payload.pieces = palletItems.reduce((sum, item) => sum + item.pieces, 0);
@@ -3184,50 +3235,72 @@
       updateClassEstimate();
     }
 
-    function selectedQuoteTarget() {
-      return String(quoteTargetEl.value || "ALL");
+    function hideTargetDropdown(picker, dropdown, trigger) {
+      picker.classList.remove("open");
+      dropdown.classList.remove("show");
+      dropdown.classList.remove("open-up");
+      dropdown.style.maxHeight = "";
+      trigger.setAttribute("aria-expanded", "false");
     }
 
-    function selectedQuoteTargetLabel() {
-      const selected = selectedQuoteTarget();
-      const match = quoteTargets.find((item) => String(item.value || "") === selected);
-      return match?.label || "All Carriers + Brokers";
+    function fitDropdownToViewport(trigger, dropdown) {
+      dropdown.classList.remove("open-up");
+      dropdown.style.maxHeight = "";
+
+      const triggerRect = trigger.getBoundingClientRect();
+      const viewportPadding = 12;
+      const below = window.innerHeight - triggerRect.bottom - viewportPadding;
+      const above = triggerRect.top - viewportPadding;
+      const naturalHeight = Math.min(dropdown.scrollHeight || 220, 320);
+      const shouldOpenUp = below < naturalHeight && above > below;
+      const available = shouldOpenUp ? above : below;
+      const maxHeight = Math.max(160, Math.min(320, available));
+
+      if (shouldOpenUp) {
+        dropdown.classList.add("open-up");
+      }
+      dropdown.style.maxHeight = `${maxHeight}px`;
     }
 
-    function syncQuoteTargetLabel() {
-      quoteTargetLabelEl.textContent = selectedQuoteTargetLabel();
-    }
-
-    function hideQuoteTargetDropdown() {
-      quoteTargetPickerEl.classList.remove("open");
-      quoteTargetDropdownEl.classList.remove("show");
-      quoteTargetTriggerEl.setAttribute("aria-expanded", "false");
-    }
-
-    function showQuoteTargetDropdown() {
+    function showTargetDropdown(picker, dropdown, trigger) {
+      hideTargetDropdown(brokerTargetPickerEl, brokerTargetDropdownEl, brokerTargetTriggerEl);
+      hideTargetDropdown(directTargetPickerEl, directTargetDropdownEl, directTargetTriggerEl);
       hideBrowserVisibilityDropdown();
-      quoteTargetPickerEl.classList.add("open");
-      quoteTargetDropdownEl.classList.add("show");
-      quoteTargetTriggerEl.setAttribute("aria-expanded", "true");
+      picker.classList.add("open");
+      dropdown.classList.add("show");
+      trigger.setAttribute("aria-expanded", "true");
+      fitDropdownToViewport(trigger, dropdown);
     }
 
-    function setQuoteTarget(value) {
-      const allowedValues = new Set(quoteTargets.map((item) => String(item.value || "")));
-      quoteTargetEl.value = allowedValues.has(String(value || "")) ? String(value || "") : "ALL";
-      syncQuoteTargetLabel();
-      renderQuoteTargetOptions(quoteTargets);
+    function refitOpenDropdowns() {
+      if (brokerTargetDropdownEl.classList.contains("show")) {
+        fitDropdownToViewport(brokerTargetTriggerEl, brokerTargetDropdownEl);
+      }
+      if (directTargetDropdownEl.classList.contains("show")) {
+        fitDropdownToViewport(directTargetTriggerEl, directTargetDropdownEl);
+      }
+      if (browserVisibilityDropdownEl.classList.contains("show")) {
+        fitDropdownToViewport(browserVisibilityTriggerEl, browserVisibilityDropdownEl);
+      }
     }
 
-    function renderQuoteTargetOptions(targets = []) {
-      const selected = selectedQuoteTarget();
-      const normalized = Array.isArray(targets) && targets.length
-        ? targets
-        : [{ value: "ALL", label: "All Carriers + Brokers" }];
-      quoteTargets = normalized;
-      quoteTargetDropdownEl.innerHTML = normalized.map((item) => {
-        const value = String(item.value || "ALL");
-        const isActive = value === selected;
-        const label = item.label || item.value || "All Carriers + Brokers";
+    function selectionLabel(prefix, options, selected) {
+      if (!selected.size) return `${prefix}: None`;
+      if (selected.size === options.length) return `${prefix}: All`;
+      const labels = options
+        .filter((item) => selected.has(String(item.value || "")))
+        .map((item) => item.label || item.value);
+      return `${prefix}: ${labels.join(", ")}`;
+    }
+
+    function renderMultiTargetOptions(options, selected, dropdown, labelEl, prefix) {
+      const allowed = new Set(options.map((item) => String(item.value || "")));
+      for (const value of Array.from(selected)) {
+        if (!allowed.has(value)) selected.delete(value);
+      }
+      const optionHtml = options.map((item) => {
+        const value = String(item.value || "");
+        const isActive = selected.has(value);
         return `
           <button
             type="button"
@@ -3236,20 +3309,73 @@
             role="option"
             aria-selected="${isActive ? "true" : "false"}"
           >
-            <span>${escapeHtml(label)}</span>
+            <span>${escapeHtml(item.label || value)}</span>
             <span class="target-option-mark" aria-hidden="true">✓</span>
           </button>
         `;
       }).join("");
-      const allowedValues = new Set(normalized.map((item) => String(item.value || "")));
-      quoteTargetEl.value = allowedValues.has(selected) ? selected : "ALL";
-      syncQuoteTargetLabel();
-      quoteTargetDropdownEl.querySelectorAll(".target-option").forEach((option) => {
-        option.addEventListener("click", () => {
-          setQuoteTarget(option.dataset.value || "ALL");
-          hideQuoteTargetDropdown();
+      dropdown.innerHTML = `
+        <div class="target-actions" aria-label="${escapeHtml(prefix)} selection shortcuts">
+          <button class="target-action" type="button" data-target-action="clear">Clear</button>
+          <button class="target-action" type="button" data-target-action="all">All</button>
+        </div>
+        ${optionHtml}
+      `;
+      dropdown.scrollTop = 0;
+      labelEl.textContent = selectionLabel(prefix, options, selected);
+      dropdown.querySelectorAll(".target-action").forEach((action) => {
+        action.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (action.dataset.targetAction === "clear") {
+            selected.clear();
+          } else if (action.dataset.targetAction === "all") {
+            options.forEach((item) => selected.add(String(item.value || "")));
+          }
+          renderMultiTargetOptions(options, selected, dropdown, labelEl, prefix);
+          const trigger = dropdown === brokerTargetDropdownEl ? brokerTargetTriggerEl : directTargetTriggerEl;
+          if (dropdown.classList.contains("show")) {
+            fitDropdownToViewport(trigger, dropdown);
+          }
         });
       });
+      dropdown.querySelectorAll(".target-option").forEach((option) => {
+        option.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const value = option.dataset.value || "";
+          if (selected.has(value)) {
+            selected.delete(value);
+          } else {
+            selected.add(value);
+          }
+          renderMultiTargetOptions(options, selected, dropdown, labelEl, prefix);
+          const trigger = dropdown === brokerTargetDropdownEl ? brokerTargetTriggerEl : directTargetTriggerEl;
+          if (dropdown.classList.contains("show")) {
+            fitDropdownToViewport(trigger, dropdown);
+          }
+        });
+      });
+    }
+
+    function renderBrokerTargetOptions(targets = brokerTargets) {
+      brokerTargets = Array.isArray(targets) ? targets : [];
+      renderMultiTargetOptions(
+        brokerTargets,
+        selectedBrokerTargets,
+        brokerTargetDropdownEl,
+        brokerTargetLabelEl,
+        "Brokers",
+      );
+    }
+
+    function renderDirectTargetOptions(targets = directCarrierTargets) {
+      directCarrierTargets = Array.isArray(targets) ? targets : [];
+      renderMultiTargetOptions(
+        directCarrierTargets,
+        selectedDirectCarrierTargets,
+        directTargetDropdownEl,
+        directTargetLabelEl,
+        "Carriers",
+      );
     }
 
     function selectedBrowserVisibility() {
@@ -3269,14 +3395,18 @@
     function hideBrowserVisibilityDropdown() {
       browserVisibilityPickerEl.classList.remove("open");
       browserVisibilityDropdownEl.classList.remove("show");
+      browserVisibilityDropdownEl.classList.remove("open-up");
+      browserVisibilityDropdownEl.style.maxHeight = "";
       browserVisibilityTriggerEl.setAttribute("aria-expanded", "false");
     }
 
     function showBrowserVisibilityDropdown() {
-      hideQuoteTargetDropdown();
+      hideTargetDropdown(brokerTargetPickerEl, brokerTargetDropdownEl, brokerTargetTriggerEl);
+      hideTargetDropdown(directTargetPickerEl, directTargetDropdownEl, directTargetTriggerEl);
       browserVisibilityPickerEl.classList.add("open");
       browserVisibilityDropdownEl.classList.add("show");
       browserVisibilityTriggerEl.setAttribute("aria-expanded", "true");
+      fitDropdownToViewport(browserVisibilityTriggerEl, browserVisibilityDropdownEl);
     }
 
     function setBrowserVisibility(value) {
@@ -3481,7 +3611,14 @@
         const response = await fetch("/api/network-info");
         const data = await response.json();
         if (!data || !data.ok) return;
-        renderQuoteTargetOptions(data.quote_targets || []);
+        brokerTargets = Array.isArray(data.broker_targets) ? data.broker_targets : [];
+        directCarrierTargets = Array.isArray(data.direct_carrier_targets) ? data.direct_carrier_targets : [];
+        selectedBrokerTargets = new Set(
+          brokerTargets.some((item) => item.value === "MYCARRIER") ? ["MYCARRIER"] : [],
+        );
+        selectedDirectCarrierTargets = new Set(directCarrierTargets.map((item) => String(item.value || "")));
+        renderBrokerTargetOptions();
+        renderDirectTargetOptions();
 
         const urls = [];
         const currentOrigin = String(window.location.origin || "");
@@ -3772,12 +3909,20 @@
         updateProfileSummary("");
       }
     });
-    quoteTargetTriggerEl.addEventListener("click", () => {
-      if (quoteTargetTriggerEl.disabled) return;
-      if (quoteTargetDropdownEl.classList.contains("show")) {
-        hideQuoteTargetDropdown();
+    brokerTargetTriggerEl.addEventListener("click", () => {
+      if (brokerTargetTriggerEl.disabled) return;
+      if (brokerTargetDropdownEl.classList.contains("show")) {
+        hideTargetDropdown(brokerTargetPickerEl, brokerTargetDropdownEl, brokerTargetTriggerEl);
       } else {
-        showQuoteTargetDropdown();
+        showTargetDropdown(brokerTargetPickerEl, brokerTargetDropdownEl, brokerTargetTriggerEl);
+      }
+    });
+    directTargetTriggerEl.addEventListener("click", () => {
+      if (directTargetTriggerEl.disabled) return;
+      if (directTargetDropdownEl.classList.contains("show")) {
+        hideTargetDropdown(directTargetPickerEl, directTargetDropdownEl, directTargetTriggerEl);
+      } else {
+        showTargetDropdown(directTargetPickerEl, directTargetDropdownEl, directTargetTriggerEl);
       }
     });
     browserVisibilityTriggerEl.addEventListener("click", () => {
@@ -3793,10 +3938,13 @@
         hideProfileDropdown();
       }
       if (!event.target.closest(".run-target-picker")) {
-        hideQuoteTargetDropdown();
+        hideTargetDropdown(brokerTargetPickerEl, brokerTargetDropdownEl, brokerTargetTriggerEl);
+        hideTargetDropdown(directTargetPickerEl, directTargetDropdownEl, directTargetTriggerEl);
         hideBrowserVisibilityDropdown();
       }
     });
+    window.addEventListener("resize", refitOpenDropdowns);
+    window.addEventListener("scroll", refitOpenDropdowns, true);
 
     printResultsBtn.addEventListener("click", () => {
       showPrintChoice();
@@ -3819,6 +3967,10 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const payload = formPayload();
+      if (!payload.broker_targets.length && !payload.direct_carrier_targets.length) {
+        setStatus("Select at least one broker or individual carrier.", "err");
+        return;
+      }
       const runContext = prepareRunContext(payload);
       setRunningState(true);
       setLoaderMessage("Preparing quote run... Press Esc to stop.");

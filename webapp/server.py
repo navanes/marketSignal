@@ -49,6 +49,7 @@ except ImportError as exc:
 from quote_mycarrier import quote_mycarrier
 from quote_priority1 import quote_priority1
 from quote_numark import quote_numark
+from quote_glovalink import quote_glovalink
 from quote_glt import quote_glt
 from quote_schneider import quote_schneider, quote_schneider_async
 from quote_tforce import quote_tforce
@@ -164,6 +165,7 @@ RESULT_DISPLAY_ORDER = [
     "CENTRAL TRANSPORTATION",
     "NUMARK",
     "TFORCE",
+    "GLOVALINK",
 ]
 ASSISTANT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 ASSISTANT_SYSTEM_PROMPT = """You are the in-app assistant for Windgate's Freight Quote Agent.
@@ -260,7 +262,14 @@ def no_cache_headers() -> dict[str, str]:
 
 
 def profile_input_data_from_payload(payload: "InputPayload") -> dict:
-    return payload.model_dump(exclude={"quote_target", "browser_visibility"})
+    return payload.model_dump(
+        exclude={
+            "quote_target",
+            "broker_targets",
+            "direct_carrier_targets",
+            "browser_visibility",
+        }
+    )
 
 
 def fetch_text(url: str, *, encoding: str = "utf-8", timeout: int = 30) -> str:
@@ -403,7 +412,11 @@ def parse_ups_shipment_piece_count(text: str) -> Optional[int]:
 
 def parse_ups_package_blocks(text: str) -> list[dict]:
     content = text or ""
-    section_match = re.search(r"Other Packages in this Shipment([\s\S]+?)(?:Stay Safe|Track Another Package|$)", content, re.I)
+    section_match = re.search(
+        r"(?:Other|All) Packages in this Shipment([\s\S]+?)(?:Stay Safe|Track Another Package|Shipment Details|$)",
+        content,
+        re.I,
+    )
     section = section_match.group(1) if section_match else content
     matches = list(re.finditer(r"\b1Z[A-Z0-9]{16}\b", section, re.I))
     packages: list[dict] = []
@@ -502,17 +515,21 @@ def parse_estes_tracking_text(text: str) -> tuple[Optional[date], Optional[date]
     status = status_match.group(1).title() if status_match else ""
 
     if re.fullmatch(r"Delivered", status, re.I):
-        actual = parse_first_us_date_near_label(content, r"Actual Delivery Date")
-        if not actual:
-            actual = parse_first_us_date_near_label(content, r"\bDelivered\b")
+        actual = (
+            parse_first_us_date_near_label(content, r"Actual Delivery Date")
+            or parse_first_us_date_near_label(content, r"Delivered Date")
+            or parse_first_us_date_near_label(content, r"Delivery Date")
+            or parse_first_us_date_near_label(content, r"Delivery Completed")
+        )
 
-    eta = parse_first_us_date_near_label(content, r"Estimated Delivery Date")
-    if not eta:
-        eta = parse_first_us_date_near_label(content, r"Appointment Date")
-    if not eta:
-        eta = parse_first_us_date_near_label(content, r"Estimated Delivery", pick_last=True)
+    if not actual:
+        eta = parse_first_us_date_near_label(content, r"Estimated Delivery Date")
+        if not eta:
+            eta = parse_first_us_date_near_label(content, r"Appointment Date")
+        if not eta:
+            eta = parse_first_us_date_near_label(content, r"Estimated Delivery", pick_last=True)
 
-    if not eta and not actual:
+    if not eta and not actual and not re.fullmatch(r"Delivered", status, re.I):
         row_match = re.search(
             r"(\d{6,})\s+(\d{1,2}/\d{1,2}/\d{4})\s+\S+\s+(\d{1,2}/\d{1,2}/\d{4})\s+(Delivered|In Transit|Picked Up|Out for Delivery)",
             content,
@@ -623,6 +640,38 @@ def parse_abf_tracking_text(text: str) -> tuple[Optional[date], Optional[date], 
             re.I,
         )
         status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    return eta, actual, status
+
+
+def parse_roadrunner_tracking_text(text: str) -> tuple[Optional[date], Optional[date], str]:
+    content = text or ""
+    status_match = re.search(r"\bShipment\s+Status\s+([^\n\r]+)", content, re.I)
+    status = clean_tracking_text(status_match.group(1)).title() if status_match else ""
+
+    eta = (
+        parse_first_us_date_near_label(content, r"Estimated\s+Delivery", window=160)
+        or parse_first_us_date_near_label(content, r"Scheduled\s+Delivery", window=160)
+        or parse_first_us_date_near_label(content, r"Expected\s+Delivery", window=160)
+    )
+
+    actual = None
+    if re.search(r"\bDelivered\b", status, re.I):
+        actual = (
+            parse_first_us_date_near_label(content, r"Actual\s+Delivery(?:\s+Date)?", window=180)
+            or parse_first_us_date_near_label(content, r"Delivered(?:\s+On)?", window=180)
+            or parse_first_us_date_near_label(content, r"Delivery\s+Date", window=180)
+        )
+
+    if not status:
+        status_match = re.search(
+            r"\b(Delivered|Out for Delivery|In Transit|On the way|We Have Your Shipment|Picked Up)\b",
+            content,
+            re.I,
+        )
+        status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+
+    if actual:
+        eta = None
     return eta, actual, status
 
 
@@ -881,6 +930,8 @@ def tracking_url(carrier: str, tracking: str) -> str:
         return "http://tracking.carrierlogistics.com/scripts/tot.pol/facts"
     if normalized == "ABF":
         return f"https://view.arcb.com/nlo/tools/tracking/{encoded}"
+    if normalized == "ROADRUNNER":
+        return "https://freight.rrts.com/Pages/Home.aspx"
     if normalized == "R&L":
         return f"https://www2.rlcarriers.com/freight/shipping/shipment-tracing?pro={encoded}&docType=PRO&source=web"
     if normalized == "DTI":
@@ -912,6 +963,8 @@ def normalize_carrier(value: str) -> str:
         return "TOTAL"
     if carrier in {"ABF", "ABF FREIGHT", "ARCBEST", "ARC BEST", "ARCBEST ABF", "ABF FREIGHT SYSTEM"}:
         return "ABF"
+    if carrier in {"ROADRUNNER", "ROADRUNNER FREIGHT", "RRTS", "ROAD RUNNER", "ROAD RUNNER FREIGHT"}:
+        return "ROADRUNNER"
     if carrier in {"NUMARK"}:
         return "NUMARK"
     if carrier in {"GLOVALINK", "GLOVA LINK", "GLOVA-LINK", "GLOVA LINK FREIGHT", "GLOVALINK FREIGHT"}:
@@ -1050,18 +1103,22 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         except Exception:
                             pass
                     piece_count = parse_ups_shipment_piece_count(text)
-                    if piece_count and piece_count > 1 and "Other Packages in this Shipment" not in text:
-                        try:
-                            page.get_by_text(re.compile(r"\d+\s+of\s+\d+\s+Piece\s+Shipment", re.I)).first.click(timeout=10000)
-                            page.wait_for_timeout(4000)
-                            text = visible_text()
-                        except Exception:
+                    package_count = len(parse_ups_package_blocks(text))
+                    if piece_count and piece_count > 1 and package_count < piece_count:
+                        for label in (
+                            r"All Packages in this Shipment",
+                            r"Other Packages in this Shipment",
+                            r"\d+\s+of\s+\d+\s+Piece\s+Shipment",
+                            r"Shipment Details",
+                        ):
                             try:
-                                page.get_by_text(re.compile(r"Shipment Details", re.I)).first.click(timeout=5000)
-                                page.wait_for_timeout(4000)
+                                page.get_by_text(re.compile(label, re.I)).first.click(timeout=10000)
+                                page.wait_for_timeout(3000)
                                 text = visible_text()
+                                if len(parse_ups_package_blocks(text)) >= piece_count:
+                                    break
                             except Exception:
-                                pass
+                                continue
 
                     updates[row["row_number"]] = summarize_ups_tracking(text, tracking)
                 elif carrier == "USPS":
@@ -1232,14 +1289,27 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         page.wait_for_timeout(8000)
                     text = page.locator("body").inner_text(timeout=10000)
                     eta, actual, status = parse_estes_tracking_text(text)
-                    if not eta and not actual:
-                        try:
-                            page.locator("button:has-text('Expand All')").first.click(timeout=5000)
-                            page.wait_for_timeout(2000)
-                        except Exception:
+                    if not actual and (not eta or re.fullmatch(r"Delivered", status or "", re.I)):
+                        expanded = False
+                        for selector in (
+                            "button:has-text('Expand All')",
+                            "mat-expansion-panel-header",
+                            "[role='button']:has-text('Delivered')",
+                        ):
                             try:
-                                page.locator("mat-icon, .mat-icon, button, [role='button']").last.click(timeout=5000)
-                                page.wait_for_timeout(2000)
+                                target = page.locator(selector).last
+                                if target.count() > 0:
+                                    target.scroll_into_view_if_needed(timeout=5000)
+                                    target.click(timeout=5000)
+                                    page.wait_for_timeout(2500)
+                                    expanded = True
+                                    break
+                            except Exception:
+                                continue
+                        if not expanded:
+                            try:
+                                page.get_by_text(re.compile(r"Delivered", re.I)).last.click(timeout=5000)
+                                page.wait_for_timeout(2500)
                             except Exception:
                                 pass
                         text = page.locator("body").inner_text(timeout=10000)
@@ -1457,6 +1527,88 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         "delivered": bool(actual),
                         "note": f"ABF: {status} {sheet_date(actual or eta)}".strip(),
                     }
+                elif carrier == "ROADRUNNER":
+                    if tracking not in text or not re.search(r"\bShipment\s+Status\b|\bEstimated\s+Delivery\b", text, re.I):
+                        try:
+                            field = page.locator("textarea:visible").first
+                            if field.count() == 0:
+                                field = page.locator(
+                                    "input[placeholder*='tracking' i]:visible, input[placeholder*='pro' i]:visible, input[type='text']:visible"
+                                ).first
+                            field.fill(tracking, timeout=10000)
+                            try:
+                                page.locator(
+                                    "input[type='submit'][value='Track']:visible, button:has-text('Track'):visible"
+                                ).first.click(timeout=10000)
+                            except Exception:
+                                field.press("Enter", timeout=5000)
+                            try:
+                                page.wait_for_url(re.compile(r"LTLTrack|searchValues", re.I), timeout=15000)
+                            except Exception:
+                                pass
+                            try:
+                                page.wait_for_function(
+                                    """(tracking) => {
+                                        const text = document.body.innerText || "";
+                                        return text.includes(tracking)
+                                            && /Shipment Status|Estimated Delivery|Delivered|In Transit/i.test(text);
+                                    }""",
+                                    arg=tracking,
+                                    timeout=20000,
+                                )
+                            except Exception:
+                                page.wait_for_timeout(8000)
+                            text = visible_text()
+                        except Exception:
+                            try:
+                                page.goto(
+                                    f"https://tools.rrts.com/LTLTrack/?searchValues={quote(tracking)}",
+                                    wait_until="domcontentloaded",
+                                    timeout=60000,
+                                )
+                                page.wait_for_timeout(8000)
+                                text = visible_text()
+                            except Exception:
+                                pass
+
+                    if tracking not in text or not re.search(r"\bShipment\s+Status\b|\bEstimated\s+Delivery\b", text, re.I):
+                        try:
+                            page.goto(
+                                f"https://tools.rrts.com/LTLTrack/?searchValues={quote(tracking)}",
+                                wait_until="domcontentloaded",
+                                timeout=60000,
+                            )
+                            try:
+                                page.wait_for_function(
+                                    """(tracking) => {
+                                        const text = document.body.innerText || "";
+                                        return text.includes(tracking)
+                                            && /Shipment Status|Estimated Delivery|Delivered|In Transit/i.test(text);
+                                    }""",
+                                    arg=tracking,
+                                    timeout=20000,
+                                )
+                            except Exception:
+                                page.wait_for_timeout(8000)
+                            text = visible_text()
+                        except Exception:
+                            pass
+
+                    eta, actual, status = parse_roadrunner_tracking_text(text)
+                    if not eta and not actual and re.fullmatch(r"tracking", status or "", re.I):
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "delivered": False,
+                            "note": "Roadrunner: manual check required",
+                        }
+                        continue
+                    updates[row["row_number"]] = {
+                        "eta": eta,
+                        "actual": actual,
+                        "delivered": bool(actual),
+                        "note": f"Roadrunner: {status} {sheet_date(actual or eta)}".strip(),
+                    }
             except Exception as exc:
                 updates[row["row_number"]] = {"eta": None, "actual": None, "note": f"{carrier}: {exc}"}
         browser.close()
@@ -1477,6 +1629,8 @@ class InputPayload(BaseModel):
     company_name: Optional[str] = Field(default="")
     order_number: Optional[str] = Field(default="")
     quote_target: Optional[str] = Field(default="ALL")
+    broker_targets: Optional[list[str]] = Field(default=None)
+    direct_carrier_targets: Optional[list[str]] = Field(default=None)
     browser_visibility: Optional[str] = Field(default="CONCEAL")
     origin_zip: str
     destination_zip: str
@@ -2023,6 +2177,7 @@ def carrier_queue():
         [
             ("NUMARK", quote_numark),
             ("TFORCE", quote_tforce),
+            ("GLOVALINK", quote_glovalink),
         ]
     )
     return carriers
@@ -2044,12 +2199,70 @@ def available_quote_targets() -> list[dict[str, str]]:
     return targets
 
 
+def available_broker_targets() -> list[dict[str, str]]:
+    targets: list[dict[str, str]] = []
+    if WEBAPP_ENABLE_GLT:
+        targets.append({"value": "GLT", "label": "GLT"})
+    if not WEBAPP_GLT_ONLY_DEBUG:
+        targets.extend(
+            [
+                {"value": "MYCARRIER", "label": "MyCarrier"},
+                {"value": "SCHNEIDER", "label": "Schneider"},
+                {"value": "PRIORITY1", "label": "Priority1"},
+            ]
+        )
+    return targets
+
+
+def available_direct_carrier_targets() -> list[dict[str, str]]:
+    if WEBAPP_GLT_ONLY_DEBUG:
+        return []
+    labels = {
+        "CENTRAL TRANSPORTATION": "Central",
+        "NUMARK": "Numark",
+        "TFORCE": "TForce",
+        "TOTAL": "Total",
+        "GLOVALINK": "GlovaLink",
+    }
+    return [
+        {"value": carrier_name, "label": labels.get(carrier_name, carrier_name.title())}
+        for carrier_name, _ in carrier_queue()
+    ]
+
+
 def normalized_quote_target(value: Optional[str]) -> str:
     raw = str(value or "ALL").strip().upper() or "ALL"
     allowed = {item["value"] for item in available_quote_targets()}
     if raw not in allowed:
         raise HTTPException(status_code=400, detail=f"Unsupported quote target: {raw}")
     return raw
+
+
+def normalized_quote_selections(payload: InputPayload) -> tuple[set[str], set[str]]:
+    broker_allowed = {item["value"] for item in available_broker_targets()}
+    direct_allowed = {item["value"] for item in available_direct_carrier_targets()}
+
+    if payload.broker_targets is not None or payload.direct_carrier_targets is not None:
+        brokers = {str(value or "").strip().upper() for value in (payload.broker_targets or [])}
+        direct = {str(value or "").strip().upper() for value in (payload.direct_carrier_targets or [])}
+        unsupported = (brokers - broker_allowed) | (direct - direct_allowed)
+        if unsupported:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported quote target(s): {', '.join(sorted(unsupported))}",
+            )
+        if not brokers and not direct:
+            raise HTTPException(status_code=400, detail="Select at least one broker or individual carrier.")
+        return brokers, direct
+
+    legacy_target = normalized_quote_target(payload.quote_target)
+    if legacy_target == "ALL":
+        return broker_allowed, direct_allowed
+    if legacy_target in broker_allowed:
+        return {legacy_target}, set()
+    if legacy_target in direct_allowed:
+        return set(), {legacy_target}
+    raise HTTPException(status_code=400, detail=f"Unsupported quote target: {legacy_target}")
 
 
 def normalized_browser_visibility(value: Optional[str]) -> str:
@@ -2424,6 +2637,8 @@ def network_info(request: Request):
         "hostname_url": hostname_url,
         "current_origin": str(request.base_url).rstrip("/"),
         "quote_targets": available_quote_targets(),
+        "broker_targets": available_broker_targets(),
+        "direct_carrier_targets": available_direct_carrier_targets(),
     }
 
 
@@ -2681,7 +2896,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             elif carrier == "DTI" and (not eta_existing or not actual_existing):
                 result = get_dti_tracking(tracking)
                 remember_tracking_checked(tracking_cache, carrier, tracking, now)
-            elif carrier in {"UPS", "USPS", "GLOVALINK", "ESTES", "TFORCE", "TFWW", "XPO", "TOTAL", "ABF"}:
+            elif carrier in {"UPS", "USPS", "GLOVALINK", "ESTES", "TFORCE", "TFWW", "XPO", "TOTAL", "ABF", "ROADRUNNER"}:
                 needs_browser_check = force_recent or not eta_existing or not actual_existing
                 if needs_browser_check and len(browser_rows) + len(xpo_browser_rows) < browser_row_limit:
                     target_browser_rows = xpo_browser_rows if carrier == "XPO" else browser_rows
@@ -2900,15 +3115,14 @@ async def run_quote(payload: InputPayload):
                 raise HTTPException(status_code=400, detail=broker_result["message"])
 
             quote_data = payload_to_quote_data(payload)
-            quote_target = normalized_quote_target(payload.quote_target)
+            selected_brokers, selected_direct_carriers = normalized_quote_selections(payload)
             browser_options = quote_browser_options(payload)
-            run_all_targets = quote_target == "ALL"
             result_map: dict[str, dict] = {}
             covered_direct_carriers = set()
             direct_carriers = carrier_queue()
 
             initial_jobs = []
-            if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
+            if WEBAPP_ENABLE_GLT and "GLT" in selected_brokers:
                 initial_jobs.append(
                     (
                         "GLT",
@@ -2916,21 +3130,21 @@ async def run_quote(payload: InputPayload):
                     )
                 )
             if not WEBAPP_GLT_ONLY_DEBUG:
-                if run_all_targets or quote_target == "SCHNEIDER":
+                if "SCHNEIDER" in selected_brokers:
                     initial_jobs.append(
                         (
                             "SCHNEIDER",
                             coroutine_job(run_schneider_job_async, quote_data, **browser_options),
                         )
                     )
-                if run_all_targets or quote_target == "MYCARRIER":
+                if "MYCARRIER" in selected_brokers:
                     initial_jobs.append(
                         (
                             "MYCARRIER",
                             thread_job(run_mycarrier_job, quote_data, **browser_options),
                         )
                     )
-                if quote_target == "PRIORITY1":
+                if "PRIORITY1" in selected_brokers:
                     initial_jobs.append(
                         (
                             "PRIORITY1",
@@ -2942,11 +3156,10 @@ async def run_quote(payload: InputPayload):
                 upsert_result(result_map, job_result["wrapped"])
                 covered_direct_carriers |= job_result.get("covered_direct_carriers", set())
 
-            selected_direct_target = None if run_all_targets else quote_target
-            if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
+            if not WEBAPP_GLT_ONLY_DEBUG and selected_direct_carriers:
                 queued_direct = []
                 for carrier_name, fn in direct_carriers:
-                    if selected_direct_target and carrier_name != selected_direct_target:
+                    if carrier_name not in selected_direct_carriers:
                         continue
                     if fn is None:
                         upsert_result(
@@ -2971,7 +3184,7 @@ async def run_quote(payload: InputPayload):
                     upsert_result(result_map, job_result["wrapped"])
 
                 for carrier_name, fn in direct_carriers:
-                    if selected_direct_target and carrier_name != selected_direct_target:
+                    if carrier_name not in selected_direct_carriers:
                         continue
                     existing_result = result_map.get(carrier_name)
                     if not existing_result or not should_retry_skipped_result(existing_result):
@@ -2987,10 +3200,6 @@ async def run_quote(payload: InputPayload):
                     else:
                         retried_result["retry_attempted"] = True
                     upsert_result(result_map, retried_result)
-
-            if not WEBAPP_GLT_ONLY_DEBUG and run_all_targets:
-                priority1_result = await asyncio.to_thread(run_priority1_job, quote_data, **browser_options)
-                upsert_result(result_map, priority1_result["wrapped"])
 
             results = ordered_results(result_map)
 
@@ -3032,9 +3241,8 @@ async def run_quote_stream(payload: InputPayload):
                     return
 
                 quote_data = payload_to_quote_data(payload)
-                quote_target = normalized_quote_target(payload.quote_target)
+                selected_brokers, selected_direct_carriers = normalized_quote_selections(payload)
                 browser_options = quote_browser_options(payload)
-                run_all_targets = quote_target == "ALL"
                 result_map: dict[str, dict] = {}
                 covered_direct_carriers = set()
                 direct_carriers = carrier_queue()
@@ -3048,7 +3256,7 @@ async def run_quote_stream(payload: InputPayload):
                 )
 
                 initial_jobs = []
-                if WEBAPP_ENABLE_GLT and (run_all_targets or quote_target == "GLT"):
+                if WEBAPP_ENABLE_GLT and "GLT" in selected_brokers:
                     initial_jobs.append(
                         (
                             "GLT",
@@ -3056,21 +3264,21 @@ async def run_quote_stream(payload: InputPayload):
                         )
                     )
                 if not WEBAPP_GLT_ONLY_DEBUG:
-                    if run_all_targets or quote_target == "SCHNEIDER":
+                    if "SCHNEIDER" in selected_brokers:
                         initial_jobs.append(
                             (
                                 "SCHNEIDER",
                                 coroutine_job(run_schneider_job_async, quote_data, **browser_options),
                             )
                         )
-                    if run_all_targets or quote_target == "MYCARRIER":
+                    if "MYCARRIER" in selected_brokers:
                         initial_jobs.append(
                             (
                                 "MYCARRIER",
                                 thread_job(run_mycarrier_job, quote_data, **browser_options),
                             )
                         )
-                    if quote_target == "PRIORITY1":
+                    if "PRIORITY1" in selected_brokers:
                         initial_jobs.append(
                             (
                                 "PRIORITY1",
@@ -3094,8 +3302,7 @@ async def run_quote_stream(payload: InputPayload):
                         }
                     )
 
-                selected_direct_target = None if run_all_targets else quote_target
-                if not WEBAPP_GLT_ONLY_DEBUG and (run_all_targets or any(carrier_name == selected_direct_target for carrier_name, _ in direct_carriers)):
+                if not WEBAPP_GLT_ONLY_DEBUG and selected_direct_carriers:
                     if RUN_CANCEL_FLAGS.get(run_id):
                         yield stream_line(
                             {
@@ -3110,7 +3317,7 @@ async def run_quote_stream(payload: InputPayload):
 
                     direct_jobs = []
                     for carrier_name, fn in direct_carriers:
-                        if selected_direct_target and carrier_name != selected_direct_target:
+                        if carrier_name not in selected_direct_carriers:
                             continue
                         if fn is None:
                             wrapped = skipped_result(
@@ -3169,7 +3376,7 @@ async def run_quote_stream(payload: InputPayload):
                         return
 
                     for carrier_name, fn in direct_carriers:
-                        if selected_direct_target and carrier_name != selected_direct_target:
+                        if carrier_name not in selected_direct_carriers:
                             continue
                         existing_result = result_map.get(carrier_name)
                         if not existing_result or not should_retry_skipped_result(existing_result):
@@ -3201,20 +3408,6 @@ async def run_quote_stream(payload: InputPayload):
                                 "results": results,
                             }
                         )
-
-                if not WEBAPP_GLT_ONLY_DEBUG and run_all_targets:
-                    yield stream_line({"type": "status", "message": "Quoting Priority1 broker portal..."})
-                    priority1_result = await asyncio.to_thread(run_priority1_job, quote_data, **browser_options)
-                    upsert_result(result_map, priority1_result["wrapped"])
-                    yield stream_line(
-                        {
-                            "type": "result",
-                            "run_id": run_id,
-                            "batch_id": broker_result["batch_id"],
-                            "result": priority1_result["wrapped"],
-                            "results": ordered_results(result_map),
-                        }
-                    )
 
                 results = ordered_results(result_map)
                 await asyncio.to_thread(update_profile_last_quote, payload.company_name, results, profile_input_data_from_payload(payload))
