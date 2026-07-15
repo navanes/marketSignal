@@ -2032,8 +2032,13 @@
 
     function quoteSignature(payload = {}) {
       const palletItems = Array.isArray(payload.pallet_items) ? payload.pallet_items : [];
+      const brokerTargets = Array.isArray(payload.broker_targets) ? payload.broker_targets : [];
+      const directTargets = Array.isArray(payload.direct_carrier_targets) ? payload.direct_carrier_targets : [];
       return JSON.stringify({
         company_name: normalizeSignatureText(payload.company_name),
+        broker_targets: brokerTargets.map((value) => normalizeSignatureText(value)).sort(),
+        direct_carrier_targets: directTargets.map((value) => normalizeSignatureText(value)).sort(),
+        browser_visibility: normalizeSignatureText(payload.browser_visibility || "CONCEAL"),
         origin_zip: normalizeSignatureText(payload.origin_zip),
         destination_zip: normalizeSignatureText(payload.destination_zip),
         pickup_city: normalizeSignatureText(payload.pickup_city),

@@ -230,6 +230,33 @@ def select_native_option(select_locator, desired: str) -> bool:
         return False
 
 
+def select_zip_suggestion(page, zip_code: str) -> bool:
+    zip_text = str(zip_code or "").strip()
+    if not zip_text:
+        return False
+    page.wait_for_timeout(800)
+    pattern = re.compile(re.escape(zip_text), re.I)
+    for selector in [".p1-select__option", "li", "[role='option']"]:
+        options = page.locator(selector).filter(has_text=pattern)
+        for idx in range(options.count()):
+            option = options.nth(idx)
+            try:
+                if not option.is_visible(timeout=500):
+                    continue
+                option.scroll_into_view_if_needed()
+                option.click(timeout=5000)
+                page.wait_for_timeout(800)
+                return True
+            except Exception:
+                continue
+    try:
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(800)
+        return True
+    except Exception:
+        return False
+
+
 def quote_line_items(data: dict):
     pallet_items = data.get("pallet_items") or []
     if pallet_items:
@@ -393,8 +420,10 @@ def fill_pickup_destination(page, data: dict):
     if destination_zip_input.count() == 0:
         destination_zip_input = priority1_visible_input_by_label(page, "DESTINATION ZIP")
 
-    set_input_value(pickup_zip_input, pickup_zip)
-    set_input_value(destination_zip_input, dest_zip)
+    set_input_value_no_tab(pickup_zip_input, pickup_zip)
+    select_zip_suggestion(page, pickup_zip)
+    set_input_value_no_tab(destination_zip_input, dest_zip)
+    select_zip_suggestion(page, dest_zip)
 
 
 def fill_items(page, data: dict):
@@ -439,6 +468,21 @@ def fill_items(page, data: dict):
         if class_select is not None:
             select_native_option(class_select, item["freight_class"])
 
+        stable_fields = {
+            "Units": item["units"],
+            "Pieces": item["pieces"],
+            "Weight": item["weight"],
+            "Length": item["length"],
+            "Width": item["width"],
+            "Height": item["height"],
+            "Description": "SHEET METAL PARTS",
+            "NMFC": "0000",
+        }
+        for field_name, value in stable_fields.items():
+            field = page.locator(f"#Items_{index}__{field_name}").first
+            if field.count() > 0:
+                set_input_value_no_tab(field, value)
+
         try:
             page.evaluate("() => document.activeElement && document.activeElement.blur && document.activeElement.blur()")
         except Exception:
@@ -451,21 +495,52 @@ def submit_quote(page):
         page.evaluate("() => document.activeElement && document.activeElement.blur && document.activeElement.blur()")
     except Exception:
         pass
-    button = page.locator("xpath=(//button[normalize-space()='Get Rates'])[last()]")
-    if button.count() == 0:
-        button = page.locator("button:visible").filter(has_text=re.compile(r"^\s*Get\s+Rates\s*$", re.I)).last
-    if button.count() == 0:
-        button = page.get_by_role("button", name=re.compile(r"Get\s+Rates", re.I)).last
-    button.wait_for(state="visible", timeout=20000)
-    button.scroll_into_view_if_needed()
-    button.evaluate(
-        """
-        (btn) => {
-            btn.scrollIntoView({block: 'center', inline: 'center'});
-            btn.click();
-        }
-        """
-    )
+
+    def click_get_rates():
+        candidates = [
+            page.get_by_role("button", name=re.compile(r"Get\s+Rates", re.I)).last,
+            page.locator("button:visible").filter(has_text=re.compile(r"^\s*Get\s+Rates\s*$", re.I)).last,
+            page.locator("xpath=(//button[normalize-space()='Get Rates'])[last()]"),
+        ]
+        last_error = None
+        for button in candidates:
+            try:
+                if button.count() == 0:
+                    continue
+                button.wait_for(state="visible", timeout=8000)
+                button.scroll_into_view_if_needed()
+                button.click(timeout=8000)
+                return
+            except Exception as exc:
+                last_error = exc
+        if last_error:
+            raise last_error
+        raise RuntimeError("Could not find Priority1 Get Rates button.")
+
+    def acknowledge_accessorial_warning():
+        warning = page.locator(".p1-confirmation").filter(has_text=re.compile(r"Recommended Accessorials", re.I)).last
+        try:
+            if warning.count() == 0 or not warning.is_visible(timeout=1000):
+                return False
+        except Exception:
+            return False
+        ignore = warning.get_by_role("button", name=re.compile(r"Ignore\s+and\s+get\s+rates", re.I))
+        ignore.wait_for(state="visible", timeout=5000)
+        ignore.click(timeout=8000)
+        return True
+
+    click_get_rates()
+    for _ in range(3):
+        page.wait_for_timeout(1500)
+        if acknowledge_accessorial_warning():
+            break
+        if re.search(r"/quotes/details/", page.url) or page.locator(".p1-quote-rate-card").count() > 0:
+            break
+        body = current_body_text(page)
+        if re.search(r"\$[0-9,]+\.[0-9]{2}", body) and re.search(r"Select Quote|Rates|Transit Days", body, re.I):
+            break
+        if page.get_by_role("button", name=re.compile(r"Get\s+Rates", re.I)).count() > 0:
+            click_get_rates()
 
     try:
         page.wait_for_url(re.compile(r"/quotes/details/"), timeout=120000)
