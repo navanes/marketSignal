@@ -698,6 +698,8 @@ def parse_usps_tracking_text(text: str) -> tuple[Optional[date], Optional[date],
         re.I,
     )
     status = status_match.group(1).title() if status_match else ("Delivered" if actual else "ETA" if eta else "tracking")
+    if not re.fullmatch(r"Delivered", status or "", re.I):
+        actual = None
     if actual:
         eta = None
     return eta, actual, status
@@ -917,7 +919,7 @@ def tracking_url(carrier: str, tracking: str) -> str:
     if normalized == "UPS":
         return f"https://www.ups.com/track?loc=en_US&tracknum={encoded}&requester=ST/trackdetails"
     if normalized == "USPS":
-        return f"https://tools.usps.com/tracking/{encoded}"
+        return f"https://tools.usps.com/go/TrackConfirmAction?tLabels={encoded}"
     if normalized == "ESTES":
         return f"https://www.estes-express.com/myestes/shipment-tracking/?query={encoded}&type=PRO"
     if normalized == "TFORCE":
@@ -1090,6 +1092,12 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
             carrier = normalize_carrier(row["carrier"])
             tracking = row["tracking"]
             try:
+                if carrier == "USPS":
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+                    page = browser.new_page()
                 page.goto(tracking_url(carrier, tracking), wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(6000)
                 text = visible_text()
@@ -1148,6 +1156,14 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                         page.wait_for_timeout(5000)
 
                     text = visible_text()
+                    if tracking not in text:
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "delivered": False,
+                            "note": "USPS: manual check required",
+                        }
+                        continue
                     eta, actual, status = parse_usps_tracking_text(text)
                     if not eta and not actual and re.fullmatch(r"tracking", status or "", re.I):
                         updates[row["row_number"]] = {
@@ -2828,7 +2844,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             )
             continue
 
-        if actual_existing:
+        if actual_existing and not force_recent:
             tracking_log_rows.append(
                 tracking_log_row(
                     now,

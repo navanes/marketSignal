@@ -94,7 +94,7 @@ def test_ups_samples_normalizes_to_ups_for_tracking():
 def test_usps_normalizes_and_builds_tracking_link():
     assert normalize_carrier("USPS") == "USPS"
     assert normalize_carrier("United States Postal Service") == "USPS"
-    assert tracking_url("USPS", "9405511206241461951679") == "https://tools.usps.com/tracking/9405511206241461951679"
+    assert tracking_url("USPS", "9405511206241461951679") == "https://tools.usps.com/go/TrackConfirmAction?tLabels=9405511206241461951679"
 
 
 def test_glovalink_normalizes_and_uses_quicktrack_link():
@@ -160,6 +160,25 @@ def test_usps_delivered_uses_actual_date():
     assert eta is None
     assert sheet_date(actual) == "6/4/2026"
     assert status == "Delivered"
+
+
+def test_usps_in_transit_does_not_use_delivered_history_as_actual():
+    text = """
+    USPS Tracking
+    Tracking Number: 9405511206241446843586
+    In Transit
+    July 23, 2026
+    Moving Through Network
+    Delivered to USPS Facility
+    July 23, 2026 at 7:02 am
+    Arrived at USPS Regional Facility
+    """
+
+    eta, actual, status = parse_usps_tracking_text(text)
+
+    assert sheet_date(eta) == "7/23/2026"
+    assert actual is None
+    assert status == "In Transit"
 
 
 def test_roadrunner_in_transit_uses_estimated_delivery():
