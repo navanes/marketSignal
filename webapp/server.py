@@ -24,6 +24,7 @@ STATIC_DIR = BASE_DIR / "static"
 SERVICE_ACCOUNT_FILE = PROJECT_ROOT / "service_account.json"
 PROFILES_FILE = PROJECT_ROOT / "company_profiles.json"
 TRACKING_CACHE_FILE = PROJECT_ROOT / ".tracking_check_cache.json"
+VERSION_FILE = PROJECT_ROOT / "VERSION"
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -113,6 +114,14 @@ def default_form_values():
         "delivery_city": "",
         "shipment_date": today_form_date(),
     }
+
+
+def app_version() -> str:
+    try:
+        version = VERSION_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        version = ""
+    return version or "dev"
 
 
 def local_ipv4_addresses() -> list[str]:
@@ -2617,6 +2626,11 @@ def loader_logo():
 @app.get("/favicon.ico")
 def favicon():
     return FileResponse(BASE_DIR / "LOGO-blue.png", headers=no_cache_headers(), media_type="image/png")
+
+
+@app.get("/api/version")
+def version_info():
+    return {"ok": True, "version": app_version()}
 
 
 @app.post("/api/input")

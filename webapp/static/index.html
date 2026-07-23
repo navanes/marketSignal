@@ -76,6 +76,33 @@
       text-transform: uppercase;
     }
 
+    .title-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 14px 0 10px;
+    }
+
+    .title-row h1 {
+      margin: 0;
+    }
+
+    .version-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--brand);
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
     h1 {
       margin: 14px 0 10px;
       font-size: clamp(2rem, 4vw, 3.5rem);
@@ -1595,7 +1622,10 @@
     <section class="hero">
       <div class="hero-card">
         <span class="eyebrow">Local Control Panel</span>
-        <h1>Freight Quote Agent</h1>
+        <div class="title-row">
+          <h1>Freight Quote Agent</h1>
+          <span id="app-version" class="version-badge">v2.0.1</span>
+        </div>
         <p class="sub">Enter the same fields you use in the Google Sheet, then run the full flow from one button: write the input, rebuild broker rows, and fetch the carrier quotes.</p>
       </div>
       <aside class="summary">
@@ -1915,6 +1945,7 @@
     const assistantHelpEl = document.getElementById("assistant-help");
     const assistantHelpToggleEl = document.getElementById("assistant-help-toggle");
     const assistantHelpPopoverEl = document.getElementById("assistant-help-popover");
+    const appVersionEl = document.getElementById("app-version");
 
     let latestResults = [];
     let latestBatchId = "";
@@ -3653,6 +3684,17 @@
       } catch {}
     }
 
+    async function loadVersionInfo() {
+      try {
+        const response = await fetch("/api/version");
+        const data = await response.json();
+        const version = String(data.version || "").trim();
+        if (version && appVersionEl) {
+          appVersionEl.textContent = `v${version.replace(/^v/i, "")}`;
+        }
+      } catch {}
+    }
+
     async function requestStopRun() {
       if (!currentRunId && !currentAbortController) {
         return false;
@@ -4025,6 +4067,7 @@
     });
 
     loadProfiles();
+    loadVersionInfo();
     loadNetworkInfo();
     renderBrowserVisibilityOptions();
     renderPalletEditor();
