@@ -43,6 +43,10 @@ def normalize_space(value: str) -> str:
     return " ".join((value or "").split())
 
 
+def default_cargo_value() -> str:
+    return env_first("MYCARRIER_DEFAULT_CARGO_VALUE", "DEFAULT_CARGO_VALUE") or "1000"
+
+
 def wait_after_step(page, multiplier=1):
     page.wait_for_timeout(STEP_DELAY_MS * multiplier)
 
@@ -615,6 +619,90 @@ def submit_quote(page):
 
         return not insurance_validation_visible()
 
+    def choose_ltl_when_prompted() -> bool:
+        try:
+            body_text = current_body_text(page)
+            if "Optimal Shipment Type" not in body_text and "QUOTE LTL" not in body_text:
+                return False
+            print("MyCarrier shipment type prompt appeared; choosing QUOTE LTL.", flush=True)
+            for selector in (
+                "button:has-text('QUOTE LTL')",
+                "button:has-text('Quote LTL')",
+                "[role='button']:has-text('QUOTE LTL')",
+            ):
+                button_candidate = page.locator(selector).first
+                if button_candidate.count() > 0:
+                    button_candidate.click(force=True, timeout=5000)
+                    page.wait_for_timeout(10000)
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def fill_required_cargo_value() -> bool:
+        cargo_value = default_cargo_value()
+        print(f"MyCarrier setting cargo value to {cargo_value}.", flush=True)
+        locator = page.locator(
+            "input[data-testid='fvp-insurance-cargo-value-input'], "
+            "input[formcontrolname*='cargo' i], "
+            "input[placeholder*='Cargo' i], "
+            "input[aria-label*='Cargo' i], "
+            "mat-form-field:has-text('Cargo value') input"
+        ).first
+        try:
+            locator.wait_for(state="visible", timeout=5000)
+            locator.scroll_into_view_if_needed(timeout=5000)
+            locator.click(force=True, timeout=5000)
+            locator.press("Control+A")
+            locator.type(cargo_value, delay=40)
+            locator.evaluate(
+                """
+                (el, cargoValue) => {
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    setter.call(el, String(cargoValue));
+                    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: String(cargoValue) }));
+                    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: '0' }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                    el.blur();
+                }
+                """,
+                cargo_value,
+            )
+            locator.press("Tab")
+            wait_after_step(page, 2)
+            current_value = normalize_space(locator.input_value(timeout=3000))
+            print(f"MyCarrier cargo value field now: {current_value or '(empty)'}", flush=True)
+            if current_value:
+                return True
+        except Exception:
+            pass
+
+        try:
+            applied = page.evaluate(
+                """
+                (cargoValue) => {
+                    const input = document.querySelector("input[data-testid='fvp-insurance-cargo-value-input']")
+                        || Array.from(document.querySelectorAll('input')).find((el) => /cargo/i.test(
+                            el.getAttribute('formcontrolname') || el.placeholder || el.getAttribute('aria-label') || ''
+                        ));
+                    if (!input) return "";
+                    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                    input.focus();
+                    setter.call(input, String(cargoValue));
+                    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: String(cargoValue) }));
+                    input.dispatchEvent(new Event('change', { bubbles: true }));
+                    input.blur();
+                    return input.value || "";
+                }
+                """,
+                cargo_value,
+            )
+            wait_after_step(page, 2)
+            print(f"MyCarrier cargo value DOM fallback: {applied or '(empty)'}", flush=True)
+            return bool(applied)
+        except Exception:
+            return False
+
     insurance_checkbox = page.locator("[data-testid='fvp-insurance-checkbox'] input[type='checkbox']").first
     insurance_host = page.locator("mat-checkbox[data-testid='fvp-insurance-checkbox']").first
     try:
@@ -637,6 +725,8 @@ def submit_quote(page):
                 wait_after_step(page, 2)
     except Exception:
         pass
+
+    fill_required_cargo_value()
 
     print("MyCarrier clicking Select Carrier...", flush=True)
     button_host = page.locator("[data-testid='select-carrier-btn']").first
@@ -678,9 +768,17 @@ def submit_quote(page):
             pass
         page.wait_for_timeout(8000)
         maybe_close_banner(page)
+        if choose_ltl_when_prompted() and results_loaded():
+            return
         if insurance_validation_visible():
-            print("MyCarrier submit blocked by insurance validation; retrying without insurance.", flush=True)
-            clear_rate_with_insurance()
+            print("MyCarrier submit blocked by insurance validation; retrying with cargo value fallback.", flush=True)
+            if not clear_rate_with_insurance() or insurance_validation_visible():
+                fill_required_cargo_value()
+            try:
+                button.click(force=True, timeout=5000)
+                page.wait_for_timeout(8000)
+            except Exception:
+                pass
         if results_loaded():
             return
 

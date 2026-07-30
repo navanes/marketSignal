@@ -13,7 +13,7 @@ from pathlib import Path
 import re
 import socket
 import sys
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import quote
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
@@ -56,6 +56,9 @@ from quote_schneider import quote_schneider, quote_schneider_async
 from quote_tforce import quote_tforce
 from quote_total import quote_total, write_result
 from sheets_utils import with_gsheets_retry
+from webapp.telegram_utils import load_telegram_config
+from webapp.telegram_utils import send_telegram_message
+from webapp.telegram_utils import telegram_config_status
 from write_brokers import write_brokers
 
 SCOPES = [
@@ -158,6 +161,7 @@ def local_mdns_hostname() -> str:
 app = FastAPI(title="Freight Quote Agent Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 RUN_CANCEL_FLAGS: dict[str, bool] = {}
+TRACKING_CANCEL_FLAGS: dict[str, bool] = {}
 QUOTE_RUN_LOCK = asyncio.Lock()
 TRACKING_UPDATE_LOCK = asyncio.Lock()
 WEBAPP_ENABLE_GLT = False
@@ -202,6 +206,7 @@ TRACKING_PARTIAL_YELLOW = {"red": 1.0, "green": 1.0, "blue": 0.0}
 TRACKING_GREEN = {"red": 0.851, "green": 0.918, "blue": 0.827}
 TRACKING_CHECK_COOLDOWN = timedelta(hours=2)
 TRACKING_ETA_CHECK_WINDOW_DAYS = 2
+TRACKING_OLD_SHIPMENT_SKIP_DAYS = int((os.getenv("TRACKING_OLD_SHIPMENT_SKIP_DAYS") or "45").strip() or "45")
 TRACKING_CHECKED_PATTERN = re.compile(r"\(checked\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\)", re.I)
 TRACKING_CACHE_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 TRACKING_LOG_HEADERS = [
@@ -502,6 +507,58 @@ def summarize_ups_tracking(text: str, tracking: str) -> dict:
         "partial": False,
         "note": f"UPS: {'Delivered' if actual else 'ETA' if eta else 'tracking'} {sheet_date(actual or eta)}".strip(),
     }
+
+
+def click_ups_next_packages_page(page) -> bool:
+    try:
+        clicked = page.evaluate(
+            """() => {
+                const visible = (el) => {
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0;
+                };
+                const disabled = (el) => {
+                    const className = String(el.className || "");
+                    return el.disabled || el.getAttribute("aria-disabled") === "true" || /disabled/i.test(className);
+                };
+                const candidates = Array.from(document.querySelectorAll("button,a,[role='button']"));
+                const next = candidates.find((el) => {
+                    const text = (el.innerText || el.textContent || el.getAttribute("aria-label") || "").trim();
+                    return /^Next\\b/i.test(text) && visible(el) && !disabled(el);
+                });
+                if (!next) return false;
+                next.scrollIntoView({block: "center", inline: "center"});
+                next.click();
+                return true;
+            }"""
+        )
+        if clicked:
+            return True
+    except Exception:
+        pass
+    for pattern in (r"^Next\b", r"Next\s*>", r"Next\s+›"):
+        try:
+            page.get_by_text(re.compile(pattern, re.I)).first.click(timeout=3000)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def collect_ups_package_pages(page, text: str, piece_count: Optional[int], visible_text: Callable[[], str]) -> str:
+    if not piece_count or piece_count <= 5:
+        return text
+    combined = text or ""
+    for _ in range(5):
+        if len(parse_ups_package_blocks(combined)) >= piece_count:
+            break
+        if not click_ups_next_packages_page(page):
+            break
+        page.wait_for_timeout(3500)
+        next_text = visible_text()
+        if next_text and next_text not in combined:
+            combined = f"{combined}\n{next_text}"
+    return combined
 
 
 def parse_first_us_date_near_label(text: str, label: str, *, pick_last: bool = False, window: int = 300) -> Optional[date]:
@@ -1038,7 +1095,7 @@ def get_dti_tracking(load_number: str) -> dict:
     return {"eta": eta, "actual": actual, "note": f"DTI: {status} {sheet_date(note_date)}".strip()}
 
 
-def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
+def browser_tracking_updates(rows: list[dict], *, skip_captcha: bool = False, should_stop: Optional[Callable[[], bool]] = None) -> dict[int, dict]:
     if not rows:
         return {}
     from playwright.sync_api import sync_playwright
@@ -1098,6 +1155,8 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                 pass
 
         for row in rows:
+            if should_stop and should_stop():
+                break
             carrier = normalize_carrier(row["carrier"])
             tracking = row["tracking"]
             try:
@@ -1136,6 +1195,7 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                                     break
                             except Exception:
                                 continue
+                        text = collect_ups_package_pages(page, text, piece_count, visible_text)
 
                     updates[row["row_number"]] = summarize_ups_tracking(text, tracking)
                 elif carrier == "USPS":
@@ -1395,35 +1455,12 @@ def browser_tracking_updates(rows: list[dict]) -> dict[int, dict]:
                 elif carrier == "XPO":
                     text = page.locator("body").inner_text(timeout=10000)
                     if re.search(r"captcha|not a robot", text, re.I):
-                        wait_seconds = 180
-                        if headless:
-                            updates[row["row_number"]] = {
-                                "eta": None,
-                                "actual": None,
-                                "note": "XPO: CAPTCHA requires visible browser",
-                            }
-                            continue
-                        show_manual_captcha_notice("XPO", wait_seconds)
-                        try:
-                            page.wait_for_function(
-                                """() => !/captcha|not a robot/i.test(document.body.innerText || "")
-                                    || /\b(In Transit|Delivered|Est\\. Delivery|Estimated Delivery)\b/i.test(document.body.innerText || "")""",
-                                timeout=wait_seconds * 1000,
-                            )
-                        except Exception:
-                            pass
-                        text = page.locator("body").inner_text(timeout=10000)
-                        if re.search(r"captcha|not a robot", text, re.I) and not re.search(
-                            r"\b(In Transit|Delivered|Est\. Delivery|Estimated Delivery)\b",
-                            text,
-                            re.I,
-                        ):
-                            updates[row["row_number"]] = {
-                                "eta": None,
-                                "actual": None,
-                                "note": "XPO: CAPTCHA requires manual check",
-                            }
-                            continue
+                        updates[row["row_number"]] = {
+                            "eta": None,
+                            "actual": None,
+                            "note": "XPO: CAPTCHA skipped; manual check required",
+                        }
+                        continue
 
                     text = page.locator("body").inner_text(timeout=10000)
                     if not re.search(r"\b(In Transit|Delivered|Est\. Delivery|Estimated Delivery)\b", text, re.I):
@@ -1683,6 +1720,12 @@ class AssistantContext(BaseModel):
     status_text: Optional[str] = ""
 
 
+class TelegramReportPayload(BaseModel):
+    batch_id: Optional[str] = Field(default="")
+    results: list[dict] = Field(default_factory=list)
+    limit: int = Field(default=5)
+
+
 def assistant_client():
     api_key = (os.getenv("OPENAI_API_KEY") or os.getenv("OPEN_AI_API_KEY") or "").strip()
     if not api_key:
@@ -1917,6 +1960,7 @@ def payload_to_quote_data(payload: InputPayload):
     freight_class = estimated_freight_class(payload)
     length, width, height = first_pallet_dimensions(payload)
     return {
+        "company_name": str(payload.company_name or "").strip(),
         "origin_zip": format_numeric_value(payload.origin_zip),
         "dest_zip": format_numeric_value(payload.destination_zip),
         "pallets": format_numeric_value(payload.pallet_count),
@@ -1937,6 +1981,7 @@ def result_with_inputs(result: dict, quote_data: dict):
     return {
         **result,
         "inputs": {
+            "company_name": quote_data.get("company_name", ""),
             "origin_zip": quote_data["origin_zip"],
             "origin_city": quote_data["pickup_city"],
             "destination_zip": quote_data["dest_zip"],
@@ -2367,15 +2412,67 @@ def format_log_price(value) -> str:
     return f"${price:,.2f}"
 
 
-def top_cheapest_log_text(top_quotes: list[dict]) -> str:
+def top_cheapest_log_text(top_quotes: list[dict], *, limit: int = 3) -> str:
     parts = []
-    for index, quote in enumerate(top_quotes[:3], start=1):
+    for index, quote in enumerate(top_quotes[:limit], start=1):
         transit_days = quote.get("transit_days")
         transit_text = f" - {transit_days} day(s)" if transit_days not in (None, "") else ""
         source = quote.get("source")
         source_text = f" via {source}" if source and source != quote.get("carrier") else ""
         parts.append(f"#{index} {quote.get('carrier') or '-'} - {format_log_price(quote.get('price'))}{transit_text}{source_text}")
     return "\n".join(parts)
+
+
+def telegram_shipment_summary(results: list[dict]) -> dict:
+    first = next((item for item in results or [] if isinstance(item.get("inputs"), dict)), {})
+    inputs = first.get("inputs") or {}
+    return {
+        "company_name": inputs.get("company_name") or "-",
+        "origin": f"{inputs.get('origin_zip') or '-'} {inputs.get('origin_city') or ''}".strip(),
+        "destination": f"{inputs.get('destination_zip') or '-'} {inputs.get('destination_city') or ''}".strip(),
+        "freight_class": inputs.get("freight_class") or "-",
+        "weight": inputs.get("weight") or "-",
+        "dimensions": f"{inputs.get('length') or '-'} x {inputs.get('width') or '-'} x {inputs.get('height') or '-'}",
+        "pieces_pallets": f"{inputs.get('pieces') or '-'} / {inputs.get('pallets') or '-'}",
+        "shipment_date": inputs.get("shipment_date") or "-",
+    }
+
+
+def normalize_quote_report_limit(limit: int) -> int:
+    try:
+        parsed = int(limit)
+    except (TypeError, ValueError):
+        return 5
+    return parsed if parsed in {3, 5, 10} else 5
+
+
+def telegram_quote_report_text(batch_id: str, results: list[dict], *, limit: int = 3) -> str:
+    report_limit = normalize_quote_report_limit(limit)
+    safe_results = [item for item in results or [] if isinstance(item, dict)]
+    top_quotes = ranked_cheapest_quotes(safe_results)[:report_limit]
+    shipment = telegram_shipment_summary(safe_results)
+    lines = [
+        f"Freight Quote Agent v{app_version()}",
+        "Quote Report",
+        f"Batch: {batch_id or '-'}",
+        "",
+        f"Company: {shipment['company_name']}",
+        f"Origin: {shipment['origin']}",
+        f"Destination: {shipment['destination']}",
+        f"Shipment Date: {shipment['shipment_date']}",
+        f"Class: {shipment['freight_class']}",
+        f"Weight: {shipment['weight']}",
+        f"Dimensions: {shipment['dimensions']}",
+        f"Pieces / Pallets: {shipment['pieces_pallets']}",
+        "",
+        f"Top {report_limit} Cheapest:",
+    ]
+    lines.append(top_cheapest_log_text(top_quotes, limit=report_limit) if top_quotes else "No priced quotes were found.")
+    lines.extend(["", f"Total results: {len(safe_results)}"])
+    skipped = [item for item in safe_results if item.get("status") == "skipped"]
+    if skipped:
+        lines.append(f"Skipped: {len(skipped)}")
+    return "\n".join(lines).strip()
 
 
 def log_dimensions_label(payload: InputPayload) -> str:
@@ -2633,6 +2730,42 @@ def version_info():
     return {"ok": True, "version": app_version()}
 
 
+@app.get("/api/telegram/status")
+def telegram_status():
+    return {"ok": True, "telegram": telegram_config_status()}
+
+
+@app.post("/api/telegram/test")
+def telegram_test_message():
+    config = load_telegram_config()
+    if not config.enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_DEFAULT_CHAT_ID in .env.",
+        )
+    send_telegram_message(
+        config.default_chat_id,
+        f"Freight Quote Agent v{app_version()} Telegram connection test.",
+        config=config,
+    )
+    return {"ok": True, "sent": True}
+
+
+@app.post("/api/telegram/report")
+def telegram_report(payload: TelegramReportPayload):
+    if not payload.results:
+        raise HTTPException(status_code=400, detail="Run a quote before sending a Telegram report.")
+    config = load_telegram_config()
+    if not config.enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_DEFAULT_CHAT_ID in .env.",
+        )
+    message = telegram_quote_report_text(payload.batch_id or "", payload.results, limit=payload.limit)
+    send_telegram_message(config.default_chat_id, message, config=config)
+    return {"ok": True, "sent": True, "message": "Telegram report sent."}
+
+
 @app.post("/api/input")
 def save_input(payload: InputPayload):
     ws = input_sheet()
@@ -2800,7 +2933,12 @@ def apply_tracking_row_color(ws, row_number: int, delivered: bool, *, partial: b
     with_gsheets_retry(lambda: ws.format(f"A{row_number}:H{row_number}", {"backgroundColor": color}))
 
 
-def update_tracking_sheet(*, force_recent: bool = False) -> dict:
+def update_tracking_sheet(
+    *,
+    force_recent: bool = False,
+    skip_captcha: bool = False,
+    should_stop: Optional[Callable[[], bool]] = None,
+) -> dict:
     ss = spreadsheet()
     try:
         ws = spreadsheet_worksheet(ss, TRACKING_TAB)
@@ -2819,16 +2957,23 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
     skipped_recent = 0
     skipped_today = 0
     skipped_eta_not_due = 0
+    skipped_old = 0
     errors: list[str] = []
     browser_rows: list[dict] = []
     xpo_browser_rows: list[dict] = []
     tracking_log_rows: list[list[str]] = []
     logged = 0
+    browser_checked = 0
     browser_row_limit = int((os.getenv("TRACKING_BROWSER_ROW_LIMIT") or "100").strip() or "100")
     now = datetime.now()
     tracking_cache = load_tracking_check_cache()
 
+    cancelled = False
+
     for offset, row in enumerate(rows[1:], start=2):
+        if should_stop and should_stop():
+            cancelled = True
+            break
         carrier = normalize_carrier(row_value(row, indexes["carrier"]))
         tracking = row_value(row, indexes["tracking"])
         date_shipped_existing = row_value(row, indexes["date_shipped"])
@@ -2858,7 +3003,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             )
             continue
 
-        if actual_existing and not force_recent:
+        if actual_existing:
             tracking_log_rows.append(
                 tracking_log_row(
                     now,
@@ -2871,6 +3016,24 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
                     actual_existing,
                     actual_existing,
                     "Already delivered",
+                )
+            )
+            continue
+
+        if shipped_date and (now.date() - shipped_date).days > TRACKING_OLD_SHIPMENT_SKIP_DAYS:
+            skipped_old += 1
+            tracking_log_rows.append(
+                tracking_log_row(
+                    now,
+                    "SKIPPED_OLD",
+                    offset,
+                    carrier,
+                    tracking,
+                    eta_existing,
+                    eta_existing,
+                    actual_existing,
+                    actual_existing,
+                    f"Shipment date is older than {TRACKING_OLD_SHIPMENT_SKIP_DAYS} days",
                 )
             )
             continue
@@ -3033,12 +3196,19 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
         )
 
     def apply_browser_tracking_results(rows_to_apply: list[dict]):
-        nonlocal updated_eta, updated_actual, updated_notes, tracking_log_rows
-        if not rows_to_apply:
+        nonlocal updated_eta, updated_actual, updated_notes, tracking_log_rows, cancelled, browser_checked
+        if not rows_to_apply or (should_stop and should_stop()):
+            cancelled = bool(should_stop and should_stop())
             return
-        browser_results = browser_tracking_updates(rows_to_apply)
+        browser_results = browser_tracking_updates(rows_to_apply, skip_captcha=skip_captcha, should_stop=should_stop)
+        browser_checked += len(browser_results)
+        if should_stop and should_stop():
+            cancelled = True
         browser_rows_by_number = {int(row["row_number"]): row for row in rows_to_apply}
         for row_number, result in browser_results.items():
+            if should_stop and should_stop():
+                cancelled = True
+                break
             current_row = rows[row_number - 1] if row_number - 1 < len(rows) else []
             browser_row = browser_rows_by_number.get(int(row_number), {})
             eta_existing = row_value(current_row, indexes["eta"])
@@ -3047,6 +3217,22 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
             old_actual = str(browser_row.get("old_actual") or actual_existing)
             carrier = row_value(current_row, indexes["carrier"])
             tracking = row_value(current_row, indexes["tracking"])
+            if actual_existing:
+                tracking_log_rows.append(
+                    tracking_log_row(
+                        now,
+                        "SKIPPED_DELIVERED",
+                        row_number,
+                        carrier,
+                        tracking,
+                        eta_existing,
+                        eta_existing,
+                        actual_existing,
+                        actual_existing,
+                        "Already delivered",
+                    )
+                )
+                continue
             if not eta_existing and result.get("eta"):
                 with_gsheets_retry(lambda r=row_number, v=sheet_date(result["eta"]): ws.update_cell(r, indexes["eta"] + 1, v))
                 eta_existing = sheet_date(result["eta"])
@@ -3104,7 +3290,7 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
 
     return {
         "ok": True,
-        "checked": checked + len(browser_rows) + len(xpo_browser_rows),
+        "checked": checked + browser_checked,
         "updated_eta": updated_eta,
         "updated_actual": updated_actual,
         "updated_notes": updated_notes,
@@ -3112,24 +3298,56 @@ def update_tracking_sheet(*, force_recent: bool = False) -> dict:
         "skipped_recent": skipped_recent,
         "skipped_today": skipped_today,
         "skipped_eta_not_due": skipped_eta_not_due,
-        "browser_checked": len(browser_rows) + len(xpo_browser_rows),
+        "skipped_old": skipped_old,
+        "browser_checked": browser_checked,
         "errors": errors[:10],
+        "cancelled": cancelled,
     }
 
 
 class UpdateTrackingPayload(BaseModel):
     force_recent: bool = False
+    skip_captcha: bool = False
+    cancel_key: str = ""
+
+
+class CancelTrackingPayload(BaseModel):
+    cancel_key: str
 
 
 @app.post("/api/update-tracking")
 async def update_tracking(payload: UpdateTrackingPayload):
+    cancel_key = (payload.cancel_key or "").strip()
+    if cancel_key:
+        TRACKING_CANCEL_FLAGS[cancel_key] = False
+
+    def should_stop_tracking() -> bool:
+        return bool(cancel_key and TRACKING_CANCEL_FLAGS.get(cancel_key))
+
     try:
         async with TRACKING_UPDATE_LOCK:
-            return await asyncio.to_thread(update_tracking_sheet, force_recent=payload.force_recent)
+            return await asyncio.to_thread(
+                update_tracking_sheet,
+                force_recent=payload.force_recent,
+                skip_captcha=payload.skip_captcha,
+                should_stop=should_stop_tracking if cancel_key else None,
+            )
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if cancel_key:
+            TRACKING_CANCEL_FLAGS.pop(cancel_key, None)
+
+
+@app.post("/api/update-tracking/cancel")
+async def cancel_tracking(payload: CancelTrackingPayload):
+    cancel_key = (payload.cancel_key or "").strip()
+    if not cancel_key:
+        raise HTTPException(status_code=400, detail="Missing cancel key")
+    TRACKING_CANCEL_FLAGS[cancel_key] = True
+    return {"ok": True, "cancelled": True}
 
 
 @app.post("/api/run")

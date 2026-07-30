@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .tracking_check_cache.json
+.telegram_bot_state.json
 .venv/
 .vscode/
 __pycache__/

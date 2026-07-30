@@ -1065,6 +1065,13 @@
       gap: 12px;
     }
 
+    .result-actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
     .result-print-btn {
       min-height: 42px;
       padding: 10px 16px;
@@ -1477,8 +1484,12 @@
         flex-direction: column;
       }
 
-      .result-print-btn {
+      .result-actions {
         width: 100%;
+      }
+
+      .result-print-btn {
+        flex: 1 1 100%;
       }
 
       .top-rate-row {
@@ -1775,7 +1786,10 @@
       <div id="result" class="result">
         <div class="result-top">
           <strong id="result-title">Latest Run</strong>
-          <button id="print-results-btn" class="secondary result-print-btn" type="button" disabled>Print Report</button>
+          <div class="result-actions">
+            <button id="telegram-results-btn" class="secondary result-print-btn" type="button" disabled>Send Telegram</button>
+            <button id="print-results-btn" class="secondary result-print-btn" type="button" disabled>Print Report</button>
+          </div>
         </div>
         <div class="result-grid">
           <div class="metric"><span class="k">Batch ID</span><span id="batch-id" class="v">-</span></div>
@@ -1909,6 +1923,7 @@
     const reportDetailEl = document.getElementById("report-detail");
     const reportLinkSlotEl = document.getElementById("report-link-slot");
     const printResultsBtn = document.getElementById("print-results-btn");
+    const telegramResultsBtn = document.getElementById("telegram-results-btn");
     const printChoiceBackdropEl = document.getElementById("print-choice-backdrop");
     const printPaperBtn = document.getElementById("print-paper-btn");
     const printPdfBtn = document.getElementById("print-pdf-btn");
@@ -2748,6 +2763,26 @@
       );
     }
 
+    async function sendResultsTelegramReport() {
+      if (!latestResults.length) {
+        setStatus("Run a quote first before sending the Telegram report.", "err");
+        return;
+      }
+      telegramResultsBtn.disabled = true;
+      setStatus("Sending quote report to Telegram...", "");
+      try {
+        await postJson("/api/telegram/report", {
+          batch_id: latestBatchId,
+          results: latestResults,
+        });
+        setStatus("Telegram report sent.", "ok");
+      } catch (err) {
+        setStatus(String(err), "err");
+      } finally {
+        telegramResultsBtn.disabled = !latestResults.length;
+      }
+    }
+
     function profileRecordData(record) {
       if (record && typeof record === "object" && record.data) return record.data;
       return record || {};
@@ -3157,6 +3192,7 @@
 
       const results = Array.isArray(data.results) ? data.results : [];
       printResultsBtn.disabled = !results.length;
+      telegramResultsBtn.disabled = !results.length;
       const topQuotes = topCheapestQuotes(results, 3);
       if (topQuotes.length) {
         reportBannerEl.classList.add("show");
@@ -3995,6 +4031,9 @@
 
     printResultsBtn.addEventListener("click", () => {
       showPrintChoice();
+    });
+    telegramResultsBtn.addEventListener("click", () => {
+      sendResultsTelegramReport();
     });
     printPaperBtn.addEventListener("click", () => {
       printResultsReport("print");

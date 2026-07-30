@@ -84,6 +84,54 @@ def test_ups_current_all_packages_panel_marks_two_delivered_boxes_complete():
     assert result["note"] == "UPS: All 2 packages delivered 6/22/2026"
 
 
+def test_ups_all_packages_across_paginated_text_marks_ten_delivered():
+    text = """
+    Tracking Details
+    Delivered
+    1 of 10 Piece Shipment
+    All Packages in this Shipment
+    1Z0JK2750319379700
+    Delivered
+    Delivered On: Wednesday, May 06 at 10:21 A.M. Dock
+    1Z0JK2750301010765
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750302870325
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750307626536
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750307691340
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    Previous 1 of 2 Next
+    All Packages in this Shipment
+    1Z0JK2750319379711
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750319379722
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750319379733
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750319379744
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    1Z0JK2750319379755
+    Delivered
+    Delivered On: Tuesday, May 05 at 10:54 A.M. Dock
+    Previous 2 of 2 Next
+    """
+
+    result = summarize_ups_tracking(text, "1Z0JK2750319379700")
+
+    assert result["partial"] is False
+    assert sheet_date(result["actual"]) == "5/6/2026"
+    assert result["note"] == "UPS: All 10 packages delivered 5/6/2026"
+
+
 def test_ups_samples_normalizes_to_ups_for_tracking():
     assert normalize_carrier("UPS(SAMPLES)") == "UPS"
     assert normalize_carrier("UPS(SAMPLE)") == "UPS"
