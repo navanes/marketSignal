@@ -18,6 +18,8 @@ from webapp.telegram_bot import save_pending_quote
 from webapp.telegram_bot import expire_pending_quote
 from webapp.telegram_bot import get_pending_quote
 from webapp.telegram_bot import missing_quote_fields
+from webapp.telegram_bot import merge_caption_fields
+from webapp.telegram_bot import parse_caption_quote_fields
 from webapp.telegram_bot import parse_quote_fields
 from webapp.telegram_bot import parse_json_object
 from webapp.telegram_bot import profile_from_extracted_ship_to
@@ -186,6 +188,55 @@ def test_parse_quote_fields_accepts_multi_pallet_line_fallback():
         {"pallet_qty": 1, "pieces": 46, "weight": 1730.0, "dimensions": (51.0, 51.0, 42.0)},
         {"pallet_qty": 1, "pieces": 45, "weight": 2060.0, "dimensions": (51.0, 51.0, 41.0)},
     ]
+
+
+def test_parse_caption_quote_fields_accepts_natural_photo_caption():
+    fields = parse_caption_quote_fields(
+        """
+        Omni Sac 07/27/26
+        1 Pallet 20 Boxes
+        49x42x34
+        750 Lbs
+        """
+    )
+
+    assert fields["company"] == "Omni Sac"
+    assert fields["pallet_qty"] == 1
+    assert fields["pieces"] == 20
+    assert fields["weight"] == 750
+    assert fields["dimensions"] == (49.0, 42.0, 34.0)
+    assert fields["pallet_lines"] == [
+        {"pallet_qty": 1, "pieces": 20, "weight": 750.0, "dimensions": (49.0, 42.0, 34.0)}
+    ]
+
+
+def test_merge_caption_fields_overrides_unclear_picklist_values():
+    fields = merge_caption_fields(
+        {
+            "company": "OMNI DUCT SYSTEMS",
+            "ship_to_zip": "95691",
+            "pallet_qty": 1,
+            "pieces": 2,
+            "weight": 50,
+            "dimensions": (49.0, 42.0, 24.0),
+            "pallet_lines": [
+                {"pallet_qty": 1, "pieces": 2, "weight": 50.0, "dimensions": (49.0, 42.0, 24.0)}
+            ],
+        },
+        """
+        Omni Sac 07/27/26
+        1 Pallet 20 Boxes
+        49x42x34
+        750 Lbs
+        """,
+    )
+
+    assert fields["company"] == "Omni Sac"
+    assert fields["ship_to_zip"] == "95691"
+    assert fields["pallet_qty"] == 1
+    assert fields["pieces"] == 20
+    assert fields["weight"] == 750
+    assert fields["dimensions"] == (49.0, 42.0, 34.0)
 
 
 def test_apply_quote_edits_accepts_replacement_pallet_lines():
@@ -410,12 +461,14 @@ def test_recent_image_message_remembers_latest_uploaded_photo(tmp_path, monkeypa
         {
             "photo": [{"file_id": "small"}, {"file_id": "large"}],
             "document": {},
+            "caption": "Omni Sac",
         },
     )
 
     assert recent_image_message("123") == {
         "photo": [{"file_id": "small"}, {"file_id": "large"}],
         "document": {},
+        "caption": "Omni Sac",
     }
 
 

@@ -228,6 +228,7 @@ def remember_recent_image(chat_id: str, message: dict):
         "saved_at": time.time(),
         "photo": message.get("photo") or [],
         "document": message.get("document") or {},
+        "caption": message.get("caption") or "",
     }
     save_bot_state(state)
 
@@ -242,6 +243,7 @@ def recent_image_message(chat_id: str, *, max_age_seconds: int = 1800) -> Option
     return {
         "photo": recent.get("photo") or [],
         "document": recent.get("document") or {},
+        "caption": recent.get("caption") or "",
     }
 
 
@@ -701,6 +703,121 @@ def parse_pallet_lines_text(text: str) -> list[dict]:
             }
         )
     return normalize_pallet_lines({"pallet_lines": lines})
+
+
+def strip_caption_company_date(value: str) -> str:
+    text = re.sub(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", "", str(value or ""))
+    text = re.sub(r"\b\d{4}-\d{1,2}-\d{1,2}\b", "", text)
+    text = re.sub(r"\s+", " ", text).strip(" -,\t")
+    return text.strip()
+
+
+def parse_caption_quote_fields(text: str) -> dict:
+    labeled_fields, _ = parse_quote_fields(text)
+    parsed = {key: value for key, value in labeled_fields.items() if value not in (None, "", [])}
+    raw_text = str(text or "")
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+
+    if not parsed.get("company"):
+        for line in lines:
+            lowered = line.lower()
+            if lowered.startswith("/"):
+                line = re.sub(r"^/\w+(?:@\w+)?", "", line).strip()
+                if not line:
+                    continue
+                lowered = line.lower()
+            if ":" in line:
+                continue
+            if re.search(r"\b(pallets?|plts?|boxes|box|pieces?|pcs|lbs?|pounds?|dimensions?)\b", lowered):
+                continue
+            if re.search(r"\d+\s*x\s*\d+\s*x\s*\d+", lowered):
+                continue
+            company = strip_caption_company_date(line)
+            if company and not is_windgate_company(company):
+                parsed["company"] = company
+                break
+
+    if not parsed.get("pallet_qty"):
+        match = re.search(r"\b(\d+)\s*(?:pallets?|plts?)\b", raw_text, re.I)
+        if match:
+            parsed["pallet_qty"] = parse_int_value(match.group(1))
+    if not parsed.get("pieces"):
+        match = re.search(r"\b(\d+)\s*(?:boxes|box|box\s*qty|pieces?|pcs)\b", raw_text, re.I)
+        if match:
+            parsed["pieces"] = parse_int_value(match.group(1))
+    if not parsed.get("weight"):
+        match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:lbs?|pounds?)\b", raw_text, re.I)
+        if match:
+            parsed["weight"] = parse_float_value(match.group(1))
+    if not parsed.get("dimensions"):
+        for line in lines:
+            if re.search(r"\d+\s*x\s*\d+\s*x\s*\d+", line, re.I):
+                parsed["dimensions"] = parse_dimensions(line)
+                break
+
+    if not parsed.get("pallet_lines") and all(parsed.get(key) for key in ("weight", "dimensions")):
+        length, width, height = parsed["dimensions"]
+        parsed["pallet_lines"] = normalize_pallet_lines(
+            {
+                "pallet_lines": [
+                    {
+                        "weight_lb": parsed.get("weight"),
+                        "length_in": length,
+                        "width_in": width,
+                        "height_in": height,
+                        "box_qty": parsed.get("pieces"),
+                        "pallet_qty": parsed.get("pallet_qty") or 1,
+                    }
+                ]
+            }
+        )
+    return parsed
+
+
+def merge_caption_fields(image_fields: dict, caption: str) -> dict:
+    caption_fields = parse_caption_quote_fields(caption)
+    if not caption_fields:
+        return image_fields
+    merged = json.loads(json.dumps(image_fields))
+    for key in ("company", "ship_to_zip"):
+        value = caption_fields.get(key)
+        if value and not (key == "company" and is_windgate_company(str(value))):
+            merged[key] = value
+
+    if caption_fields.get("pallet_lines"):
+        return refresh_fields_from_pallet_lines(merged, caption_fields["pallet_lines"])
+
+    for key in ("pallet_qty", "pieces", "weight", "dimensions"):
+        if caption_fields.get(key):
+            merged[key] = caption_fields[key]
+    if merged.get("weight") and merged.get("dimensions"):
+        length, width, height = merged["dimensions"]
+        merged["pallet_lines"] = normalize_pallet_lines(
+            {
+                "pallet_lines": [
+                    {
+                        "weight_lb": merged.get("weight"),
+                        "length_in": length,
+                        "width_in": width,
+                        "height_in": height,
+                        "box_qty": merged.get("pieces"),
+                        "pallet_qty": merged.get("pallet_qty") or 1,
+                    }
+                ]
+            }
+        )
+    return merged
+
+
+def looks_like_quote_caption(text: str) -> bool:
+    value = str(text or "")
+    if not value.strip():
+        return False
+    return bool(
+        re.search(r"\d+\s*x\s*\d+\s*x\s*\d+", value, re.I)
+        or re.search(r"\b\d+\s*(?:pallets?|plts?|boxes|box|pieces?|pcs|lbs?|pounds?)\b", value, re.I)
+        or re.search(r"(?im)^(company|weight|dimensions|pallet qty|pieces|ship to zip)\s*:", value)
+    )
 
 
 def refresh_fields_from_pallet_lines(fields: dict, pallet_lines: list[dict]) -> dict:
@@ -1323,6 +1440,7 @@ def handle_image_quote(message: dict, config: TelegramConfig, chat_id: str, *, a
     try:
         image_bytes, content_type = download_telegram_file(config, file_id)
         fields = extract_picklist_quote_fields(image_bytes, content_type)
+        fields = merge_caption_fields(fields, str(message.get("caption") or ""))
     except PicklistNotFoundError as exc:
         if not skip_non_picklist:
             send_telegram_message(chat_id, str(exc), config=config)
@@ -1366,7 +1484,8 @@ def handle_message(message: dict, config: TelegramConfig):
         return
     if config.allowed_chat_ids and chat_id not in config.allowed_chat_ids:
         return
-    if has_media and not text:
+    command = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
+    if has_media and (not text or command == "/quote" or looks_like_quote_caption(text)):
         handle_image_quote(message, config, chat_id, announce=False, skip_non_picklist=True)
         return
 
@@ -1405,7 +1524,6 @@ def handle_message(message: dict, config: TelegramConfig):
         )
         return
 
-    command = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
     if command in {"/start", "/help"}:
         send_telegram_message(chat_id, "Choose an action:", config=config, reply_markup=MENU_KEYBOARD)
         send_telegram_message(chat_id, quote_help_text(), config=config, reply_markup=main_menu_markup())
