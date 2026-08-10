@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarketSignal</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Market research assistant</p>
+            <h1>MarketSignal</h1>
+          </div>
+          <div class="status-pill" id="sourceStatus">Live data</div>
+        </header>
+
+        <section class="search-panel" aria-label="Research a market">
+          <form id="researchForm">
+            <label for="query">Stock, ETF, index, sector, or market</label>
+            <div class="search-row">
+              <div class="combo" id="marketCombo">
+                <input
+                  id="query"
+                  name="query"
+                  autocomplete="off"
+                  placeholder="Choose a market or type a new one"
+                  required
+                  aria-autocomplete="list"
+                  aria-expanded="false"
+                  aria-controls="marketOptions"
+                />
+                <button class="combo-toggle" id="marketToggle" type="button" aria-label="Open market list">Markets v</button>
+                <div class="market-menu" id="marketOptions" role="listbox"></div>
+              </div>
+              <button type="submit">
+                <span aria-hidden="true">Go</span>
+                Research
+              </button>
+            </div>
+            <div class="quick-picks" id="quickPicks" aria-label="Top market shortcuts"></div>
+          </form>
+        </section>
+
+        <section class="dashboard" aria-live="polite">
+          <div class="metric-grid">
+            <article class="metric">
+              <span>Recommendation</span>
+              <strong id="action">Ready</strong>
+              <small id="confidence">Enter a market to begin</small>
+            </article>
+            <article class="metric">
+              <span>Latest Price</span>
+              <strong id="price">-</strong>
+              <small id="exchange">-</small>
+            </article>
+            <article class="metric">
+              <span>Range Move</span>
+              <strong id="change">-</strong>
+              <small id="range">-</small>
+            </article>
+            <article class="metric">
+              <span>News Tone</span>
+              <strong id="tone">-</strong>
+              <small id="toneScore">-</small>
+            </article>
+          </div>
+
+          <section class="analytics-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">Analytics</p>
+                <h2>Price history, forecast, and decision flow</h2>
+              </div>
+              <div class="chart-legend">
+                <span><i class="line-price"></i>Price</span>
+                <span><i class="line-sma"></i>20D avg</span>
+                <span><i class="line-forecast"></i>Forecast</span>
+              </div>
+            </div>
+            <div class="range-filter" id="rangeFilter" aria-label="Chart range">
+              <button type="button" data-period="1mo">1M</button>
+              <button type="button" data-period="2mo">2M</button>
+              <button type="button" data-period="3mo">3M</button>
+              <button type="button" data-period="6mo" class="active">6M</button>
+              <button type="button" data-period="1y">1Y</button>
+              <button type="button" data-period="2y">2Y</button>
+              <button type="button" data-period="5y">5Y</button>
+              <button type="button" data-period="max">MAX</button>
+            </div>
+            <div class="overlay-filter" id="overlayFilter" aria-label="Chart analysis overlays">
+              <button type="button" data-overlay="trendline" class="active">Trendline</button>
+              <button type="button" data-overlay="levels" class="active">Support / Resistance</button>
+              <button type="button" data-overlay="channel">Channel</button>
+              <button type="button" data-overlay="fibonacci">Fibonacci</button>
+              <button type="button" data-overlay="patterns">Patterns</button>
+              <button type="button" data-overlay="volume" class="active">Volume</button>
+            </div>
+            <div class="chart-tools" aria-label="Chart zoom controls">
+              <button type="button" id="panLeft" title="Scroll chart left" aria-label="Scroll chart left">&lt;</button>
+              <button type="button" id="zoomOut">Zoom Out</button>
+              <button type="button" id="zoomIn">Zoom In</button>
+              <button type="button" id="panRight" title="Scroll chart right" aria-label="Scroll chart right">&gt;</button>
+              <button type="button" id="zoomReset">Reset View</button>
+              <span id="zoomLabel">Full view</span>
+            </div>
+            <div class="analytics-grid">
+              <div class="chart-box">
+                <canvas id="priceChart" width="960" height="360"></canvas>
+                <div class="chart-scrollbar">
+                  <span>Past</span>
+                  <input id="chartPanSlider" type="range" min="0" max="0" value="0" step="1" aria-label="Chart timeline position" disabled />
+                  <span>Latest</span>
+                </div>
+              </div>
+              <div class="analytics-side">
+                <div class="stat-row">
+                  <span>Annual volatility</span>
+                  <strong id="volatility">-</strong>
+                </div>
+                <div class="stat-row">
+                  <span>Max drawdown</span>
+                  <strong id="drawdown">-</strong>
+                </div>
+                <div class="stat-row">
+                  <span>10-session projection</span>
+                  <strong id="projection">-</strong>
+                </div>
+                <div id="flowchart" class="flowchart">
+                  <div class="flow-node empty">Run research</div>
+                </div>
+              </div>
+            </div>
+            <div class="technical-grid">
+              <article class="technical-card">
+                <span>Trend</span>
+                <strong id="trendState">-</strong>
+                <small id="trendDetail">Moving-average structure</small>
+              </article>
+              <article class="technical-card">
+                <span>RSI 14</span>
+                <strong id="rsiValue">-</strong>
+                <small id="rsiState">Momentum oscillator</small>
+              </article>
+              <article class="technical-card">
+                <span>MACD</span>
+                <strong id="macdValue">-</strong>
+                <small id="macdState">Momentum crossover</small>
+              </article>
+              <article class="technical-card">
+                <span>Support / Resistance</span>
+                <strong id="levelsValue">-</strong>
+                <small id="levelsState">Recent range levels</small>
+              </article>
+              <article class="technical-card">
+                <span>Volume</span>
+                <strong id="volumeState">-</strong>
+                <small id="volumeValue">Recent activity</small>
+              </article>
+              <article class="technical-card probability-card">
+                <span>Historical Probability</span>
+                <strong id="probabilityValue">-</strong>
+                <small id="probabilityState">10-session similar setups</small>
+              </article>
+            </div>
+            <section class="scenario-panel">
+              <div>
+                <p class="eyebrow">Conditional Prediction</p>
+                <h2>Scenario report</h2>
+              </div>
+              <p id="scenarioReport">Run research to generate a conditional market scenario.</p>
+            </section>
+          </section>
+
+          <div class="content-grid">
+            <section class="report-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">Analysis</p>
+                  <h2 id="reportTitle">Research report</h2>
+                </div>
+                <button class="ghost" id="copyReport" type="button" disabled>
+                  <span aria-hidden="true">[]</span>
+                  Copy
+                </button>
+              </div>
+              <pre id="report">Enter a ticker or market name above. The report will appear here with signals, risks, recent headlines, and a qualified buy/hold/sell stance.</pre>
+            </section>
+
+            <aside class="side-panel">
+              <section>
+                <div class="panel-header compact">
+                  <div>
+                    <p class="eyebrow">Signals</p>
+                    <h2>Evidence</h2>
+                  </div>
+                </div>
+                <ul id="signals" class="signal-list">
+                  <li>Waiting for research input.</li>
+                </ul>
+              </section>
+
+              <section>
+                <div class="panel-header compact">
+                  <div>
+                    <p class="eyebrow">News</p>
+                    <h2>Latest headlines</h2>
+                  </div>
+                </div>
+                <div id="headlines" class="headlines">
+                  <p class="empty">No headlines loaded yet.</p>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
