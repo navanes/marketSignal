@@ -33,6 +33,7 @@ The current version uses free endpoints:
 - Yahoo Finance chart data for price history and moving averages
 - Google News RSS for recent headlines
 - Local JSON history in `data/reports.json`
+- Local SQLite prediction tracking in `data/predictions.sqlite3`
 
 Good next free or free-tier additions:
 
@@ -53,3 +54,13 @@ Trendlines, channels, support/resistance, Fibonacci levels, and chart patterns a
 - If price breaks support, the setup weakens or invalidates.
 - If price reaches resistance, confirmation matters before chasing.
 - News and technicals should agree before confidence rises.
+
+## Prediction Tracking
+
+Each successful research run with price history saves a 10-session prediction:
+
+- ticker, start date, start price, target price, predicted direction, confidence, and technical context
+- pending status until the target date arrives
+- evaluated status after the app can compare the prediction with actual market data
+
+The Prediction Tracker dashboard shows total predictions, pending checks, direction accuracy, average target error, per-symbol accuracy, and recent prediction history. This is the first step toward calibration: the app can measure which signals worked before we add heavier machine learning.

@@ -45,9 +45,18 @@ const volumeValue = document.querySelector("#volumeValue");
 const probabilityValue = document.querySelector("#probabilityValue");
 const probabilityState = document.querySelector("#probabilityState");
 const scenarioReport = document.querySelector("#scenarioReport");
+const refreshPredictions = document.querySelector("#refreshPredictions");
+const predictionTotal = document.querySelector("#predictionTotal");
+const predictionAccuracy = document.querySelector("#predictionAccuracy");
+const predictionError = document.querySelector("#predictionError");
+const predictionPending = document.querySelector("#predictionPending");
+const predictionChart = document.querySelector("#predictionChart");
+const symbolAccuracy = document.querySelector("#symbolAccuracy");
+const predictionRows = document.querySelector("#predictionRows");
 
 let lastReport = "";
 let lastAnalytics = null;
+let lastPredictionData = null;
 let currentPeriod = "6mo";
 let chartZoom = 1;
 let chartPanStart = null;
@@ -289,6 +298,21 @@ function drawEmptyChart(message = "Run research to load price history") {
   ctx.clearRect(0, 0, rect.width, rect.height);
   ctx.fillStyle = "#60707b";
   ctx.font = "700 15px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(message, rect.width / 2, rect.height / 2);
+}
+
+function drawEmptyPredictionChart(message = "Prediction history will appear here") {
+  const canvas = predictionChart;
+  const ctx = canvas.getContext("2d");
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(320, Math.floor(rect.width * ratio));
+  canvas.height = Math.max(220, Math.floor(rect.height * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  ctx.fillStyle = "#60707b";
+  ctx.font = "800 14px system-ui";
   ctx.textAlign = "center";
   ctx.fillText(message, rect.width / 2, rect.height / 2);
 }
@@ -790,6 +814,125 @@ function renderScenario(analytics = {}) {
     chartAnalysis.scenario_report || "No chart scenario available for this search yet.";
 }
 
+function drawPredictionChart(predictions = []) {
+  const evaluated = predictions
+    .filter((item) => item.status === "evaluated" && typeof item.target_error_pct === "number")
+    .slice()
+    .reverse();
+  if (!evaluated.length) {
+    drawEmptyPredictionChart("No evaluated predictions yet");
+    return;
+  }
+
+  const canvas = predictionChart;
+  const ctx = canvas.getContext("2d");
+  const ratio = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(320, Math.floor(rect.width * ratio));
+  canvas.height = Math.max(220, Math.floor(rect.height * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  const width = rect.width;
+  const height = rect.height;
+  const pad = { top: 24, right: 18, bottom: 42, left: 58 };
+  const values = evaluated.map((item) => item.target_error_pct);
+  const max = Math.max(5, ...values);
+  const xFor = (index) => pad.left + (index / Math.max(1, evaluated.length - 1)) * (width - pad.left - pad.right);
+  const yFor = (value) => pad.top + ((max - value) / max) * (height - pad.top - pad.bottom);
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f7faf9";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#d8e0e4";
+  ctx.fillStyle = "#60707b";
+  ctx.font = "750 11px system-ui";
+  ctx.textAlign = "right";
+  for (let i = 0; i <= 4; i += 1) {
+    const value = (max * i) / 4;
+    const y = yFor(value);
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(width - pad.right, y);
+    ctx.stroke();
+    ctx.fillText(`${value.toFixed(1)}%`, pad.left - 8, y + 4);
+  }
+
+  const points = evaluated.map((item, index) => ({ x: xFor(index), y: yFor(item.target_error_pct), item }));
+  strokeLine(ctx, points, "#2e5e9e", [5, 4]);
+  points.forEach((point) => {
+    ctx.save();
+    ctx.fillStyle = point.item.direction_correct ? "#126b61" : "#b23b3b";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  ctx.fillStyle = "#60707b";
+  ctx.textAlign = "left";
+  ctx.fillText(evaluated[0].actual_date || evaluated[0].due_date, pad.left, height - 12);
+  ctx.textAlign = "right";
+  const last = evaluated[evaluated.length - 1];
+  ctx.fillText(last.actual_date || last.due_date, width - pad.right, height - 12);
+}
+
+function renderPredictionTracker(data = {}) {
+  lastPredictionData = data;
+  const summary = data.summary || {};
+  const predictions = data.predictions || [];
+  predictionTotal.textContent = summary.total ?? "-";
+  predictionAccuracy.textContent = formatPct(summary.direction_accuracy_pct);
+  predictionError.textContent = formatPct(summary.avg_target_error_pct);
+  predictionPending.textContent = summary.pending ?? "-";
+
+  symbolAccuracy.innerHTML = "";
+  if (data.by_symbol?.length) {
+    data.by_symbol.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "accuracy-row";
+      row.innerHTML = `<strong>${item.symbol}</strong><span>${formatPct(item.accuracy_pct)} / ${item.total} checks</span>`;
+      symbolAccuracy.appendChild(row);
+    });
+  } else {
+    symbolAccuracy.innerHTML = '<p class="empty">No evaluated predictions yet.</p>';
+  }
+
+  predictionRows.innerHTML = "";
+  if (predictions.length) {
+    predictions.slice(0, 18).forEach((item) => {
+      const tr = document.createElement("tr");
+      const status = item.status === "evaluated" ? (item.direction_correct ? "Correct" : "Missed") : "Pending";
+      tr.className = item.status === "evaluated" ? (item.direction_correct ? "good-row" : "bad-row") : "";
+      tr.innerHTML = `
+        <td>${item.symbol}</td>
+        <td>${item.predicted_direction}</td>
+        <td>${formatShortMoney(item.target_price)}</td>
+        <td>${item.due_date || "-"}</td>
+        <td>${typeof item.actual_price === "number" ? formatShortMoney(item.actual_price) : "-"}</td>
+        <td>${status}</td>
+      `;
+      predictionRows.appendChild(tr);
+    });
+  } else {
+    predictionRows.innerHTML = '<tr><td colspan="6">Predictions will appear after research runs.</td></tr>';
+  }
+  drawPredictionChart(predictions);
+}
+
+async function loadPredictionTracker() {
+  try {
+    const response = await fetch("/api/predictions");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load prediction history.");
+    renderPredictionTracker(data);
+  } catch {
+    drawEmptyPredictionChart("Could not load prediction history");
+  }
+}
+
 function setActivePeriod(period) {
   currentPeriod = period;
   rangeFilter.querySelectorAll("button").forEach((button) => {
@@ -908,6 +1051,7 @@ async function runResearch(query, period = currentPeriod) {
     if (!response.ok) throw new Error(data.error || "Research failed.");
     addMarketOption(query);
     render(data);
+    await loadPredictionTracker();
   } catch (error) {
     renderError(error.message);
   } finally {
@@ -1069,6 +1213,8 @@ function endChartDrag(event) {
 priceChart.addEventListener("pointerup", endChartDrag);
 priceChart.addEventListener("pointercancel", endChartDrag);
 
+refreshPredictions.addEventListener("click", loadPredictionTracker);
+
 copyReport.addEventListener("click", async () => {
   if (!lastReport) return;
   await navigator.clipboard.writeText(lastReport);
@@ -1082,7 +1228,11 @@ renderMarketOptions();
 setActivePeriod(currentPeriod);
 updateZoomLabel();
 drawEmptyChart();
+drawEmptyPredictionChart();
+loadPredictionTracker();
 window.addEventListener("resize", () => {
   if (lastAnalytics) drawPriceChart(lastAnalytics);
   else drawEmptyChart();
+  if (lastPredictionData) drawPredictionChart(lastPredictionData.predictions || []);
+  else drawEmptyPredictionChart();
 });

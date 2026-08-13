@@ -380,6 +380,100 @@ button:disabled {
   gap: 18px;
 }
 
+.prediction-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.prediction-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 18px;
+}
+
+.compact-chart {
+  min-height: 310px;
+}
+
+.compact-chart canvas {
+  height: 276px;
+}
+
+.prediction-side {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.accuracy-list {
+  display: grid;
+  gap: 8px;
+}
+
+.accuracy-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 7px;
+  background: #f1f6f4;
+}
+
+.accuracy-row span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.prediction-table-wrap {
+  margin-top: 16px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.prediction-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.prediction-table th,
+.prediction-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.prediction-table th {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.prediction-table td {
+  font-weight: 700;
+}
+
+.prediction-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.prediction-table .good-row td:last-child {
+  color: var(--brand-dark);
+}
+
+.prediction-table .bad-row td:last-child {
+  color: var(--red);
+}
+
 .chart-box {
   min-height: 430px;
   padding: 12px;
@@ -781,6 +875,8 @@ pre {
   .metric-grid,
   .content-grid,
   .analytics-grid,
+  .prediction-grid,
+  .prediction-layout,
   .technical-grid {
     grid-template-columns: 1fr 1fr;
   }
@@ -800,6 +896,10 @@ pre {
   .analytics-side {
     grid-column: 1 / -1;
   }
+
+  .prediction-side {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 640px) {
@@ -812,6 +912,8 @@ pre {
   .metric-grid,
   .content-grid,
   .analytics-grid,
+  .prediction-grid,
+  .prediction-layout,
   .technical-grid {
     grid-template-columns: 1fr;
   }

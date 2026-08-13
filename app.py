@@ -5,6 +5,7 @@ import email.utils
 import json
 import os
 import re
+import sqlite3
 import statistics
 import urllib.error
 import urllib.parse
@@ -19,6 +20,7 @@ ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "static"
 DATA_DIR = ROOT / "data"
 REPORTS_PATH = DATA_DIR / "reports.json"
+PREDICTIONS_DB = DATA_DIR / "predictions.sqlite3"
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", "8000"))
 
@@ -636,6 +638,206 @@ def save_report_snapshot(data: dict[str, Any]) -> None:
     REPORTS_PATH.write_text(json.dumps(existing[-200:], indent=2), encoding="utf-8")
 
 
+def prediction_direction(start_price: float, target_price: float) -> str:
+    change_pct = (target_price - start_price) / start_price * 100 if start_price else 0
+    if change_pct >= 1:
+        return "up"
+    if change_pct <= -1:
+        return "down"
+    return "sideways"
+
+
+def init_prediction_db() -> None:
+    DATA_DIR.mkdir(exist_ok=True)
+    with sqlite3.connect(PREDICTIONS_DB) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                due_date TEXT NOT NULL,
+                query TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                name TEXT,
+                horizon_sessions INTEGER NOT NULL,
+                start_price REAL NOT NULL,
+                target_price REAL NOT NULL,
+                predicted_direction TEXT NOT NULL,
+                confidence TEXT,
+                action TEXT,
+                score INTEGER,
+                period TEXT,
+                sentiment TEXT,
+                trend TEXT,
+                rsi14 REAL,
+                macd_histogram REAL,
+                support REAL,
+                resistance REAL,
+                actual_price REAL,
+                actual_date TEXT,
+                actual_change_pct REAL,
+                target_error_pct REAL,
+                direction_correct INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                evaluated_at TEXT
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_predictions_symbol ON predictions(symbol)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_predictions_status ON predictions(status)")
+
+
+def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
+    quote = data.get("quote", {})
+    analytics = data.get("analytics", {})
+    forecast = analytics.get("forecast") or []
+    chart = analytics.get("chart") or []
+    if not chart or not forecast or not isinstance(quote.get("price"), (int, float)):
+        return None
+    target = forecast[-1].get("close")
+    due_date = forecast[-1].get("date")
+    if not isinstance(target, (int, float)) or not due_date:
+        return None
+
+    technical = analytics.get("technical", {})
+    start_price = float(quote["price"])
+    predicted = prediction_direction(start_price, float(target))
+    init_prediction_db()
+    with sqlite3.connect(PREDICTIONS_DB) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO predictions (
+                created_at, due_date, query, symbol, name, horizon_sessions, start_price, target_price,
+                predicted_direction, confidence, action, score, period, sentiment, trend, rsi14,
+                macd_histogram, support, resistance
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                data["generated_at"],
+                due_date,
+                data["query"],
+                quote["symbol"],
+                quote.get("name"),
+                len(forecast),
+                start_price,
+                float(target),
+                predicted,
+                data.get("signal", {}).get("confidence"),
+                data.get("signal", {}).get("action"),
+                data.get("signal", {}).get("score"),
+                data.get("period"),
+                data.get("sentiment", {}).get("label"),
+                technical.get("trend"),
+                technical.get("rsi14"),
+                technical.get("macd_histogram"),
+                technical.get("support"),
+                technical.get("resistance"),
+            ),
+        )
+        prediction_id = cursor.lastrowid
+    return {
+        "id": prediction_id,
+        "due_date": due_date,
+        "target_price": target,
+        "predicted_direction": predicted,
+        "status": "pending",
+    }
+
+
+def actual_close_on_or_after(symbol: str, due_date: str) -> tuple[str, float] | None:
+    chart = yahoo_chart(symbol, "3mo")
+    rows = price_series(chart)
+    if not rows:
+        return None
+    due = dt.date.fromisoformat(due_date)
+    for row in rows:
+        if dt.date.fromisoformat(row["date"]) >= due:
+            return row["date"], float(row["close"])
+    return None
+
+
+def evaluate_pending_predictions() -> None:
+    init_prediction_db()
+    today = dt.datetime.now(dt.timezone.utc).date()
+    with sqlite3.connect(PREDICTIONS_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        pending = conn.execute(
+            "SELECT * FROM predictions WHERE status = 'pending' AND due_date <= ? ORDER BY due_date ASC LIMIT 50",
+            (today.isoformat(),),
+        ).fetchall()
+        for row in pending:
+            try:
+                actual = actual_close_on_or_after(row["symbol"], row["due_date"])
+            except Exception:
+                actual = None
+            if actual is None:
+                continue
+            actual_date, actual_price = actual
+            actual_change_pct = (actual_price - row["start_price"]) / row["start_price"] * 100
+            target_error_pct = abs(actual_price - row["target_price"]) / row["start_price"] * 100
+            actual_direction = prediction_direction(row["start_price"], actual_price)
+            direction_correct = 1 if actual_direction == row["predicted_direction"] else 0
+            conn.execute(
+                """
+                UPDATE predictions
+                SET actual_price = ?, actual_date = ?, actual_change_pct = ?, target_error_pct = ?,
+                    direction_correct = ?, status = 'evaluated', evaluated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    actual_price,
+                    actual_date,
+                    actual_change_pct,
+                    target_error_pct,
+                    direction_correct,
+                    dt.datetime.now(dt.timezone.utc).isoformat(),
+                    row["id"],
+                ),
+            )
+
+
+def prediction_rows(limit: int = 120) -> list[dict[str, Any]]:
+    init_prediction_db()
+    evaluate_pending_predictions()
+    with sqlite3.connect(PREDICTIONS_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM predictions ORDER BY created_at DESC, id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def prediction_accuracy_summary() -> dict[str, Any]:
+    rows = prediction_rows()
+    evaluated = [row for row in rows if row["status"] == "evaluated"]
+    pending = [row for row in rows if row["status"] == "pending"]
+    correct = [row for row in evaluated if row.get("direction_correct")]
+    avg_error = statistics.fmean([row["target_error_pct"] for row in evaluated if row["target_error_pct"] is not None]) if evaluated else None
+    by_symbol: dict[str, dict[str, Any]] = {}
+    for row in evaluated:
+        item = by_symbol.setdefault(row["symbol"], {"symbol": row["symbol"], "total": 0, "correct": 0, "avg_error_pct": 0, "errors": []})
+        item["total"] += 1
+        item["correct"] += 1 if row.get("direction_correct") else 0
+        if row["target_error_pct"] is not None:
+            item["errors"].append(row["target_error_pct"])
+    for item in by_symbol.values():
+        item["accuracy_pct"] = item["correct"] / item["total"] * 100 if item["total"] else None
+        item["avg_error_pct"] = statistics.fmean(item["errors"]) if item["errors"] else None
+        del item["errors"]
+    return {
+        "summary": {
+            "total": len(rows),
+            "pending": len(pending),
+            "evaluated": len(evaluated),
+            "direction_accuracy_pct": len(correct) / len(evaluated) * 100 if evaluated else None,
+            "avg_target_error_pct": avg_error,
+        },
+        "by_symbol": sorted(by_symbol.values(), key=lambda item: (-item["total"], item["symbol"]))[:12],
+        "predictions": rows[:80],
+    }
+
+
 def google_news(query: str, limit: int = 10) -> list[dict[str, str]]:
     search = urllib.parse.quote(f"{query} stock market")
     url = f"https://news.google.com/rss/search?q={search}&hl=en-US&gl=US&ceid=US:en"
@@ -1055,6 +1257,7 @@ def research(query: str, period: str = "6mo") -> dict[str, Any]:
         ],
     }
     save_report_snapshot(data)
+    data["prediction"] = save_prediction_snapshot(data)
     return data
 
 
@@ -1102,6 +1305,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/":
             self.serve_file(STATIC_DIR / "index.html")
+            return
+        if parsed.path == "/api/predictions":
+            self.send_json(200, prediction_accuracy_summary())
             return
         if parsed.path.startswith("/static/"):
             rel = parsed.path.removeprefix("/static/")
