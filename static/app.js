@@ -53,11 +53,21 @@ const predictionPending = document.querySelector("#predictionPending");
 const predictionChart = document.querySelector("#predictionChart");
 const symbolAccuracy = document.querySelector("#symbolAccuracy");
 const predictionRows = document.querySelector("#predictionRows");
+const horizonFilter = document.querySelector("#horizonFilter");
+const horizonCustom = document.querySelector("#horizonCustom");
+const recentPanel = document.querySelector("#recentPanel");
+const recentList = document.querySelector("#recentList");
+const clearRecents = document.querySelector("#clearRecents");
+const modelForecast = document.querySelector("#modelForecast");
+const modelDir = document.querySelector("#modelDir");
+const modelMeta = document.querySelector("#modelMeta");
+const modelComponents = document.querySelector("#modelComponents");
 
 let lastReport = "";
 let lastAnalytics = null;
 let lastPredictionData = null;
 let currentPeriod = "6mo";
+let currentHorizonDays = 10;
 let chartZoom = 1;
 let chartPanStart = null;
 let dragState = null;
@@ -247,9 +257,51 @@ function addMarketOption(value) {
   const savedKeys = new Set(saved.map((item) => item.toUpperCase()));
   const key = cleaned.toUpperCase();
   if (!defaultKeys.has(key) && !savedKeys.has(key)) {
-    localStorage.setItem(MARKET_STORAGE_KEY, JSON.stringify([cleaned, ...saved].slice(0, 40)));
+    localStorage.setItem(MARKET_STORAGE_KEY, JSON.stringify([cleaned, ...saved].slice(0, 500)));
+  } else if (savedKeys.has(key)) {
+    // bump an existing entry to the top
+    const reordered = [cleaned, ...saved.filter((item) => item.toUpperCase() !== key)];
+    localStorage.setItem(MARKET_STORAGE_KEY, JSON.stringify(reordered.slice(0, 500)));
   }
   renderMarketOptions();
+  renderRecentSearches();
+}
+
+function removeSavedMarket(value) {
+  const key = String(value).toUpperCase();
+  const next = readSavedMarkets().filter((item) => item.toUpperCase() !== key);
+  localStorage.setItem(MARKET_STORAGE_KEY, JSON.stringify(next));
+  renderMarketOptions();
+  renderRecentSearches();
+}
+
+function clearSavedMarkets() {
+  localStorage.removeItem(MARKET_STORAGE_KEY);
+  renderMarketOptions();
+  renderRecentSearches();
+}
+
+function renderRecentSearches() {
+  const saved = readSavedMarkets();
+  recentPanel.hidden = saved.length === 0;
+  recentList.innerHTML = "";
+  saved.forEach((value) => {
+    const li = document.createElement("li");
+    li.className = "recent-item";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "recent-open";
+    open.textContent = value;
+    open.addEventListener("click", () => runResearch(value));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "recent-x";
+    remove.setAttribute("aria-label", `Remove ${value}`);
+    remove.textContent = "×";
+    remove.addEventListener("click", () => removeSavedMarket(value));
+    li.append(open, remove);
+    recentList.appendChild(li);
+  });
 }
 
 function formatMoney(value, currency = "USD") {
@@ -804,8 +856,8 @@ function renderTechnical(technical = {}) {
     typeof probability.up_pct === "number" ? `${formatPct(probability.up_pct)} up` : "-";
   probabilityState.textContent =
     typeof probability.down_pct === "number"
-      ? `${formatPct(probability.down_pct)} down / ${probability.sample_size || 0} matches`
-      : "10-session similar setups";
+      ? `${formatPct(probability.down_pct)} down / ${probability.sample_size || 0} matches over ${probability.lookahead_sessions || 10} sessions`
+      : "Similar historical setups";
 }
 
 function renderScenario(analytics = {}) {
@@ -902,13 +954,15 @@ function renderPredictionTracker(data = {}) {
 
   predictionRows.innerHTML = "";
   if (predictions.length) {
-    predictions.slice(0, 18).forEach((item) => {
+    predictions.slice(0, 60).forEach((item) => {
       const tr = document.createElement("tr");
       const status = item.status === "evaluated" ? (item.direction_correct ? "Correct" : "Missed") : "Pending";
       tr.className = item.status === "evaluated" ? (item.direction_correct ? "good-row" : "bad-row") : "";
+      const horizon = item.horizon_days ? `${item.horizon_days}d` : `${item.horizon_sessions || "-"}s`;
       tr.innerHTML = `
         <td>${item.symbol}</td>
         <td>${item.predicted_direction}</td>
+        <td>${horizon}</td>
         <td>${formatShortMoney(item.target_price)}</td>
         <td>${item.due_date || "-"}</td>
         <td>${typeof item.actual_price === "number" ? formatShortMoney(item.actual_price) : "-"}</td>
@@ -917,7 +971,7 @@ function renderPredictionTracker(data = {}) {
       predictionRows.appendChild(tr);
     });
   } else {
-    predictionRows.innerHTML = '<tr><td colspan="6">Predictions will appear after research runs.</td></tr>';
+    predictionRows.innerHTML = '<tr><td colspan="7">Predictions will appear after research runs.</td></tr>';
   }
   drawPredictionChart(predictions);
 }
@@ -993,6 +1047,7 @@ function render(data) {
   projection.textContent = formatPct(stats.projection_change_pct);
   renderTechnical(analytics.technical);
   renderScenario(analytics);
+  renderModelForecast(data.forecast_model, data.horizon_days || currentHorizonDays);
   drawPriceChart(analytics);
   renderFlow(analytics.flow);
 
@@ -1045,7 +1100,7 @@ async function runResearch(query, period = currentPeriod) {
     const response = await fetch("/api/research", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, period }),
+      body: JSON.stringify({ query, period, horizon_days: currentHorizonDays }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Research failed.");
@@ -1224,8 +1279,62 @@ copyReport.addEventListener("click", async () => {
   }, 1200);
 });
 
+function setActiveHorizon(days) {
+  currentHorizonDays = days;
+  horizonFilter.querySelectorAll("button[data-horizon]").forEach((button) => {
+    button.classList.toggle("active", Number(button.dataset.horizon) === days);
+  });
+}
+
+horizonFilter.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-horizon]");
+  if (!button) return;
+  horizonCustom.value = "";
+  setActiveHorizon(Number(button.dataset.horizon));
+});
+
+horizonCustom.addEventListener("change", () => {
+  if (!horizonCustom.value) return;
+  const days = Math.round((new Date(horizonCustom.value) - new Date()) / 86400000);
+  if (days >= 1 && days <= 365) {
+    horizonFilter.querySelectorAll("button[data-horizon]").forEach((button) => button.classList.remove("active"));
+    currentHorizonDays = days;
+  } else {
+    horizonCustom.value = "";
+  }
+});
+
+clearRecents.addEventListener("click", () => {
+  if (confirm("Clear all recent searches?")) clearSavedMarkets();
+});
+
+function renderModelForecast(model, horizonDays) {
+  if (!model || !model.direction) {
+    modelForecast.hidden = true;
+    return;
+  }
+  modelForecast.hidden = false;
+  modelDir.textContent = model.direction;
+  modelDir.className = `model-dir dir-${model.direction}`;
+  const parts = [`${horizonDays}-day view`, `${model.confidence} confidence`];
+  if (typeof model.expected_return_pct === "number") {
+    parts.push(`expected ${model.expected_return_pct > 0 ? "+" : ""}${model.expected_return_pct.toFixed(1)}%`);
+  }
+  if (typeof model.band_pct === "number") parts.push(`flat band ±${model.band_pct.toFixed(1)}%`);
+  modelMeta.textContent = parts.join(" · ");
+  modelComponents.innerHTML = "";
+  (model.components || []).slice(0, 5).forEach((component) => {
+    const li = document.createElement("li");
+    const sign = component.contribution > 0 ? "+" : component.contribution < 0 ? "−" : "·";
+    li.innerHTML = `<span>${component.name.replace(/_/g, " ")}</span><span class="mc-${sign === "+" ? "up" : sign === "−" ? "down" : "flat"}">${sign}${Math.abs(component.contribution).toFixed(2)}</span>`;
+    modelComponents.appendChild(li);
+  });
+}
+
 renderMarketOptions();
+renderRecentSearches();
 setActivePeriod(currentPeriod);
+setActiveHorizon(currentHorizonDays);
 updateZoomLabel();
 drawEmptyChart();
 drawEmptyPredictionChart();

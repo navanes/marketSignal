@@ -83,6 +83,35 @@ def period_config(period: str) -> dict[str, Any]:
     return PERIODS.get(period, PERIODS["6mo"])
 
 
+# How far ahead a prediction looks. Presets are calendar days; the model also
+# accepts any custom day count (2..365) or a target ISO date.
+PREDICTION_HORIZONS = {"4d": 4, "1w": 7, "2w": 14, "10d": 10, "30d": 30, "90d": 90}
+DEFAULT_HORIZON_DAYS = 10
+
+
+def normalize_horizon_days(value: Any) -> int:
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if key in PREDICTION_HORIZONS:
+            return PREDICTION_HORIZONS[key]
+        # allow an ISO target date
+        try:
+            delta = (dt.date.fromisoformat(value.strip()) - dt.date.today()).days
+            if delta >= 1:
+                return min(delta, 365)
+        except ValueError:
+            pass
+    try:
+        return max(2, min(int(round(float(value))), 365))
+    except (TypeError, ValueError):
+        return DEFAULT_HORIZON_DAYS
+
+
+def horizon_sessions(days: int) -> int:
+    """Trading sessions in a calendar-day horizon (~5 per 7 days)."""
+    return max(3, round(days * 5 / 7))
+
+
 def trim_series_to_months(series: list[dict[str, Any]], months: int | None) -> list[dict[str, Any]]:
     if months is None or not series:
         return series
@@ -382,7 +411,8 @@ def chart_analysis_summary(chart: list[dict[str, Any]], technical: dict[str, Any
     }
 
 
-def probability_model(chart: list[dict[str, Any]], lookahead: int = 10) -> dict[str, Any]:
+def probability_model(chart: list[dict[str, Any]], lookahead: int = 10, band: float = 1.0) -> dict[str, Any]:
+    lookahead = max(1, min(int(lookahead), max(1, len(chart) - 40)))
     if len(chart) < 45:
         return {
             "up_pct": None,
@@ -419,8 +449,8 @@ def probability_model(chart: list[dict[str, Any]], lookahead: int = 10) -> dict[
             if row_trend == latest_trend:
                 future_return = (chart[index + lookahead]["close"] - row["close"]) / row["close"] * 100
                 matches.append(future_return)
-    up = len([value for value in matches if value > 1])
-    down = len([value for value in matches if value < -1])
+    up = len([value for value in matches if value > band])
+    down = len([value for value in matches if value < -band])
     sideways = max(0, len(matches) - up - down)
     total = len(matches)
     return {
@@ -430,11 +460,14 @@ def probability_model(chart: list[dict[str, Any]], lookahead: int = 10) -> dict[
         "sample_size": total,
         "avg_forward_return_pct": statistics.fmean(matches) if matches else None,
         "lookahead_sessions": lookahead,
-        "method": "Historical 10-session outcomes after similar trend, RSI, and MACD conditions.",
+        "band_pct": band,
+        "method": f"Historical {lookahead}-session outcomes after similar trend, RSI, and MACD conditions.",
     }
 
 
-def analytics_summary(series: list[dict[str, Any]], period: str = "6mo") -> dict[str, Any]:
+def analytics_summary(
+    series: list[dict[str, Any]], period: str = "6mo", horizon_days: int = DEFAULT_HORIZON_DAYS
+) -> dict[str, Any]:
     closes = [row["close"] for row in series]
     if len(closes) < 2:
         return {
@@ -490,17 +523,24 @@ def analytics_summary(series: list[dict[str, Any]], period: str = "6mo") -> dict
         else 0
     )
     last_date = dt.date.fromisoformat(series[-1]["date"])
+    sessions = horizon_sessions(horizon_days)
     forecast = []
-    forecast_step_days = 7 if period == "max" else 1
-    for step in range(1, 11):
+    n_points = 10
+    span_days = 7 * n_points if period == "max" else horizon_days
+    for step in range(1, n_points + 1):
+        day_offset = max(1, round(step * span_days / n_points))
+        # slope is per array index (~per trading day); scale by the day offset.
         forecast.append(
             {
-                "date": (last_date + dt.timedelta(days=step * forecast_step_days)).isoformat(),
-                "close": max(0, closes[-1] + slope * step),
-                "method": "linear_10_period_projection" if period == "max" else "linear_10_session_projection",
+                "date": (last_date + dt.timedelta(days=day_offset)).isoformat(),
+                "close": max(0, closes[-1] + slope * (step if period == "max" else day_offset)),
+                "method": "linear_period_projection" if period == "max" else "linear_session_projection",
             }
         )
     recent_return_stdev = statistics.stdev(returns[-60:]) if len(returns) > 2 else 0
+    # Typical move over the chosen horizon, in %, from recent daily volatility.
+    horizon_move_pct = recent_return_stdev * (sessions ** 0.5) * 100 if recent_return_stdev else None
+    analog_band = max(0.5, min(0.6 * (horizon_move_pct or 3.0), 8.0))
     scenario_paths = {"base": [], "bullish": [], "bearish": []}
     for step, point in enumerate(forecast, start=1):
         uncertainty = closes[-1] * recent_return_stdev * (step**0.5)
@@ -530,7 +570,7 @@ def analytics_summary(series: list[dict[str, Any]], period: str = "6mo") -> dict
     )
     latest = chart[-1]
     levels = support_resistance(series)
-    probability = probability_model(chart)
+    probability = probability_model(chart, lookahead=sessions, band=analog_band)
     trend = trend_state(latest.get("close"), latest.get("sma20"), latest.get("sma50"), latest.get("macd_histogram"))
     pattern = pattern_state(latest.get("close"), levels["support"], levels["resistance"], volatility)
 
@@ -573,6 +613,9 @@ def analytics_summary(series: list[dict[str, Any]], period: str = "6mo") -> dict
         "monthly_peaks": list(monthly.values()),
         "technical": technical,
         "chart_analysis": chart_analysis_summary(chart, technical),
+        "horizon_days": horizon_days,
+        "horizon_sessions": sessions,
+        "horizon_move_pct": horizon_move_pct,
         "stats": {
             "days": len(closes),
             "volatility_annualized_pct": volatility,
@@ -584,6 +627,104 @@ def analytics_summary(series: list[dict[str, Any]], period: str = "6mo") -> dict
         },
         "flow": [],
         "has_price_history": True,
+    }
+
+
+def directional_forecast(
+    quote: dict[str, Any], sentiment: dict[str, Any], analytics: dict[str, Any]
+) -> dict[str, Any]:
+    """Blend the available signals into one explainable up / down / sideways call
+    for the chosen horizon. The 'sideways' band scales with the stock's own
+    volatility so the model isn't forced to guess flat on choppy names."""
+    technical = analytics.get("technical", {}) or {}
+    probability = technical.get("probability", {}) or {}
+    horizon_days = int(analytics.get("horizon_days") or DEFAULT_HORIZON_DAYS)
+    move = analytics.get("horizon_move_pct") or 3.0  # typical % move over the horizon
+    price = quote.get("price")
+
+    components: list[dict[str, Any]] = []
+
+    def add(name: str, value: float, weight: float) -> None:
+        clipped = max(-1.0, min(1.0, value))
+        components.append(
+            {"name": name, "value": round(clipped, 3), "weight": weight, "contribution": round(clipped * weight, 4)}
+        )
+
+    up_p, down_p = probability.get("up_pct"), probability.get("down_pct")
+    analog_n = probability.get("sample_size") or 0
+    if up_p is not None and down_p is not None and analog_n >= 8:
+        add("historical_analog", (up_p - down_p) / 100.0, 0.32)
+
+    trend = technical.get("trend")
+    add("trend", {"uptrend": 1.0, "downtrend": -1.0}.get(trend, 0.0), 0.18)
+
+    macd_hist = technical.get("macd_histogram")
+    if macd_hist is not None:
+        add("macd", 1.0 if macd_hist > 0 else -1.0, 0.12)
+
+    rsi = technical.get("rsi14")
+    if rsi is not None:
+        if rsi <= 30:
+            add("rsi_mean_reversion", 1.0, 0.12)
+        elif rsi >= 70:
+            add("rsi_mean_reversion", -1.0, 0.12)
+        else:
+            add("rsi_mean_reversion", (50 - rsi) / 40.0, 0.06)
+
+    label = sentiment.get("label")
+    add("news_sentiment", {"positive": 1.0, "negative": -1.0}.get(label, 0.0), 0.10)
+
+    low, high = quote.get("low_6m"), quote.get("high_6m")
+    if price and low and high and high != low:
+        position = (price - low) / (high - low)  # 0 at range low, 1 at range high
+        add("range_position", (0.5 - position) * 2.0, 0.08)
+
+    volume_state = technical.get("volume_state")
+    if volume_state in ("rising", "falling"):
+        trend_sign = {"uptrend": 1.0, "downtrend": -1.0}.get(trend, 0.0)
+        add("volume_confirmation", trend_sign * (1.0 if volume_state == "rising" else -0.4), 0.08)
+
+    total_weight = sum(component["weight"] for component in components) or 1.0
+    score = sum(component["contribution"] for component in components) / total_weight  # -1..1
+
+    # Expected move: blend the empirical analog average with the signal-scaled
+    # move, and let a large aligned score be decisive rather than always "flat".
+    analog_avg = probability.get("avg_forward_return_pct")
+    signal_move = score * move * 1.6
+    if analog_avg is not None and analog_n >= 10:
+        analog_weight = min(0.6, 0.3 + analog_n / 120)
+        expected_return_pct = analog_weight * analog_avg + (1 - analog_weight) * signal_move
+    else:
+        expected_return_pct = signal_move
+    band_pct = max(0.5, min(0.4 * move, 6.0))
+    if expected_return_pct >= band_pct:
+        direction = "up"
+    elif expected_return_pct <= -band_pct:
+        direction = "down"
+    else:
+        direction = "sideways"
+
+    magnitude = abs(score)
+    confidence = (
+        "high" if magnitude >= 0.5
+        else "medium-high" if magnitude >= 0.35
+        else "medium" if magnitude >= 0.2
+        else "low-medium" if magnitude >= 0.1
+        else "low"
+    )
+    if analog_n < 12 and confidence in ("high", "medium-high"):
+        confidence = "medium"
+
+    return {
+        "model": "blend_v1",
+        "direction": direction,
+        "score": round(score, 3),
+        "expected_return_pct": round(expected_return_pct, 3),
+        "band_pct": round(band_pct, 3),
+        "confidence": confidence,
+        "target_price": round(price * (1 + expected_return_pct / 100), 4) if price else None,
+        "horizon_days": horizon_days,
+        "components": sorted(components, key=lambda c: -abs(c["contribution"])),
     }
 
 
@@ -638,11 +779,11 @@ def save_report_snapshot(data: dict[str, Any]) -> None:
     REPORTS_PATH.write_text(json.dumps(existing[-200:], indent=2), encoding="utf-8")
 
 
-def prediction_direction(start_price: float, target_price: float) -> str:
-    change_pct = (target_price - start_price) / start_price * 100 if start_price else 0
-    if change_pct >= 1:
+def prediction_direction(start_price: float, end_price: float, band_pct: float = 1.0) -> str:
+    change_pct = (end_price - start_price) / start_price * 100 if start_price else 0
+    if change_pct >= band_pct:
         return "up"
-    if change_pct <= -1:
+    if change_pct <= -band_pct:
         return "down"
     return "sideways"
 
@@ -679,10 +820,24 @@ def init_prediction_db() -> None:
                 target_error_pct REAL,
                 direction_correct INTEGER,
                 status TEXT NOT NULL DEFAULT 'pending',
-                evaluated_at TEXT
+                evaluated_at TEXT,
+                model TEXT,
+                horizon_days INTEGER,
+                band_pct REAL,
+                expected_return_pct REAL
             )
             """
         )
+        # Add newer columns to databases created before they existed.
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(predictions)").fetchall()}
+        for column, decl in (
+            ("model", "TEXT"),
+            ("horizon_days", "INTEGER"),
+            ("band_pct", "REAL"),
+            ("expected_return_pct", "REAL"),
+        ):
+            if column not in existing:
+                conn.execute(f"ALTER TABLE predictions ADD COLUMN {column} {decl}")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_predictions_symbol ON predictions(symbol)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_predictions_status ON predictions(status)")
 
@@ -692,16 +847,32 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
     analytics = data.get("analytics", {})
     forecast = analytics.get("forecast") or []
     chart = analytics.get("chart") or []
-    if not chart or not forecast or not isinstance(quote.get("price"), (int, float)):
-        return None
-    target = forecast[-1].get("close")
-    due_date = forecast[-1].get("date")
-    if not isinstance(target, (int, float)) or not due_date:
+    if not chart or not isinstance(quote.get("price"), (int, float)):
         return None
 
-    technical = analytics.get("technical", {})
     start_price = float(quote["price"])
-    predicted = prediction_direction(start_price, float(target))
+    horizon_days = int(data.get("horizon_days") or analytics.get("horizon_days") or DEFAULT_HORIZON_DAYS)
+    forecast_model = data.get("forecast_model") or {}
+
+    if isinstance(forecast_model.get("target_price"), (int, float)):
+        target = float(forecast_model["target_price"])
+        predicted = forecast_model["direction"]
+        band_pct = float(forecast_model.get("band_pct") or 1.0)
+        expected_return_pct = float(forecast_model.get("expected_return_pct") or 0.0)
+        model = forecast_model.get("model") or "blend_v1"
+        confidence = forecast_model.get("confidence") or data.get("signal", {}).get("confidence")
+    elif forecast and isinstance(forecast[-1].get("close"), (int, float)):
+        target = float(forecast[-1]["close"])
+        band_pct = 1.0
+        expected_return_pct = (target - start_price) / start_price * 100 if start_price else 0.0
+        predicted = prediction_direction(start_price, target, band_pct)
+        model = "linear_fallback"
+        confidence = data.get("signal", {}).get("confidence")
+    else:
+        return None
+
+    due_date = (dt.date.today() + dt.timedelta(days=horizon_days)).isoformat()
+    technical = analytics.get("technical", {})
     init_prediction_db()
     with sqlite3.connect(PREDICTIONS_DB) as conn:
         cursor = conn.execute(
@@ -709,8 +880,8 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
             INSERT INTO predictions (
                 created_at, due_date, query, symbol, name, horizon_sessions, start_price, target_price,
                 predicted_direction, confidence, action, score, period, sentiment, trend, rsi14,
-                macd_histogram, support, resistance
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                macd_histogram, support, resistance, model, horizon_days, band_pct, expected_return_pct
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["generated_at"],
@@ -718,11 +889,11 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
                 data["query"],
                 quote["symbol"],
                 quote.get("name"),
-                len(forecast),
+                horizon_sessions(horizon_days),
                 start_price,
-                float(target),
+                target,
                 predicted,
-                data.get("signal", {}).get("confidence"),
+                confidence,
                 data.get("signal", {}).get("action"),
                 data.get("signal", {}).get("score"),
                 data.get("period"),
@@ -732,6 +903,10 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
                 technical.get("macd_histogram"),
                 technical.get("support"),
                 technical.get("resistance"),
+                model,
+                horizon_days,
+                band_pct,
+                expected_return_pct,
             ),
         )
         prediction_id = cursor.lastrowid
@@ -740,6 +915,10 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
         "due_date": due_date,
         "target_price": target,
         "predicted_direction": predicted,
+        "band_pct": band_pct,
+        "expected_return_pct": expected_return_pct,
+        "horizon_days": horizon_days,
+        "model": model,
         "status": "pending",
     }
 
@@ -775,7 +954,8 @@ def evaluate_pending_predictions() -> None:
             actual_date, actual_price = actual
             actual_change_pct = (actual_price - row["start_price"]) / row["start_price"] * 100
             target_error_pct = abs(actual_price - row["target_price"]) / row["start_price"] * 100
-            actual_direction = prediction_direction(row["start_price"], actual_price)
+            band = row["band_pct"] if ("band_pct" in row.keys() and row["band_pct"] is not None) else 1.0
+            actual_direction = prediction_direction(row["start_price"], actual_price, band)
             direction_correct = 1 if actual_direction == row["predicted_direction"] else 0
             conn.execute(
                 """
@@ -825,6 +1005,20 @@ def prediction_accuracy_summary() -> dict[str, Any]:
         item["accuracy_pct"] = item["correct"] / item["total"] * 100 if item["total"] else None
         item["avg_error_pct"] = statistics.fmean(item["errors"]) if item["errors"] else None
         del item["errors"]
+
+    def group_accuracy(key_fn, label_key):
+        buckets: dict[Any, dict[str, Any]] = {}
+        for row in evaluated:
+            key = key_fn(row)
+            if key is None:
+                continue
+            item = buckets.setdefault(key, {label_key: key, "total": 0, "correct": 0})
+            item["total"] += 1
+            item["correct"] += 1 if row.get("direction_correct") else 0
+        for item in buckets.values():
+            item["accuracy_pct"] = item["correct"] / item["total"] * 100 if item["total"] else None
+        return sorted(buckets.values(), key=lambda i: (-i["total"], str(i[label_key])))
+
     return {
         "summary": {
             "total": len(rows),
@@ -834,6 +1028,9 @@ def prediction_accuracy_summary() -> dict[str, Any]:
             "avg_target_error_pct": avg_error,
         },
         "by_symbol": sorted(by_symbol.values(), key=lambda item: (-item["total"], item["symbol"]))[:12],
+        "by_horizon": group_accuracy(lambda r: r.get("horizon_days"), "horizon_days"),
+        "by_model": group_accuracy(lambda r: r.get("model"), "model"),
+        "by_direction": group_accuracy(lambda r: r.get("predicted_direction"), "direction"),
         "predictions": rows[:80],
     }
 
@@ -1224,9 +1421,10 @@ def ai_report(
         return None
 
 
-def research(query: str, period: str = "6mo") -> dict[str, Any]:
+def research(query: str, period: str = "6mo", horizon_days: int = DEFAULT_HORIZON_DAYS) -> dict[str, Any]:
     symbol = normalize_symbol(query)
     selected_period = period if period in PERIODS else "6mo"
+    horizon_days = normalize_horizon_days(horizon_days)
     series: list[dict[str, Any]] = []
     try:
         chart = yahoo_chart(symbol, selected_period)
@@ -1236,8 +1434,9 @@ def research(query: str, period: str = "6mo") -> dict[str, Any]:
         quote = news_only_quote(query, symbol, str(exc), selected_period)
     news = google_news(query or symbol)
     sentiment = news_sentiment(news)
-    analytics = analytics_summary(series, selected_period)
+    analytics = analytics_summary(series, selected_period, horizon_days)
     signal = build_signal(quote, sentiment, analytics)
+    forecast_model = directional_forecast(quote, sentiment, analytics)
     decision_flow(quote, sentiment, signal, analytics)
     report = ai_report(query, quote, sentiment, signal, analytics) or deterministic_report(
         query, quote, sentiment, signal, analytics
@@ -1245,11 +1444,13 @@ def research(query: str, period: str = "6mo") -> dict[str, Any]:
     data = {
         "query": query,
         "period": selected_period,
+        "horizon_days": horizon_days,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "quote": quote,
         "sentiment": sentiment,
         "signal": signal,
         "analytics": analytics,
+        "forecast_model": forecast_model,
         "report": report,
         "sources": [
             {"name": "Yahoo Finance chart API", "url": "https://finance.yahoo.com/"},
@@ -1329,7 +1530,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             query = str(payload.get("query", "")).strip()
             period = str(payload.get("period", "6mo")).strip()
-            data = research(query, period)
+            horizon_days = normalize_horizon_days(payload.get("horizon_days", payload.get("horizon")))
+            data = research(query, period, horizon_days)
             self.send_json(200, data)
         except ValueError as exc:
             self.send_json(400, {"error": str(exc)})
