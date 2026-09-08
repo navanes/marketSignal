@@ -9,3 +9,4 @@ data/reports.json
 data/predictions.sqlite3
 data/backtest.sqlite3
 logs/
+data/model_rejected.json

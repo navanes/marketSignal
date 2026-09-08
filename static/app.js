@@ -1053,10 +1053,21 @@ function renderScorecard(data = {}) {
   scorecardGrid.innerHTML = cells
     .map(([k, v]) => `<div class="scorecard-cell"><span>${k}</span><strong>${v}</strong></div>`)
     .join("");
-  const regime = (data.by_regime || [])
-    .map((r) => `${r.regime} ${formatPct(r.accuracy_pct)}`)
-    .join(" · ");
-  scorecardRegime.textContent = regime ? `By regime: ${regime}` : "";
+  const learned = data.learned;
+  if (learned && learned.walkforward) {
+    const w = learned.walkforward;
+    const b = learned.baseline_blend_v1 || {};
+    scorecardRegime.textContent =
+      `Learned model (${learned.activated ? "LIVE" : "not activated"}, walk-forward, out-of-sample): ` +
+      `${formatPct(w.hit_rate_pct)} directional hit · ${w.mean_pnl_pct >= 0 ? "+" : ""}${w.mean_pnl_pct}%/trade · ` +
+      `Sharpe ${w.sharpe_like} · deployed ${formatPct(w.deployed_pct)}  ` +
+      `— vs blend_v1 ${b.mean_pnl_pct >= 0 ? "+" : ""}${b.mean_pnl_pct}%/trade`;
+  } else {
+    const regime = (data.by_regime || [])
+      .map((r) => `${r.regime} ${formatPct(r.accuracy_pct)}`)
+      .join(" · ");
+    scorecardRegime.textContent = regime ? `By regime: ${regime}` : "";
+  }
   const best = (data.best_symbols || []).slice(0, 4).map((s) => `${s.symbol} ${formatPct(s.accuracy_pct)}`).join(", ");
   const worst = (data.worst_symbols || []).slice(0, 4).map((s) => `${s.symbol} ${formatPct(s.accuracy_pct)}`).join(", ");
   scorecardSymbols.textContent = best ? `Best: ${best}  —  Worst: ${worst}` : "";

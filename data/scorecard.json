@@ -244,5 +244,28 @@
       "realized_avg_pct": 2.6
     }
   ],
-  "headline": "15,794 graded predictions over ~5y. Direction 32.5%. Up-calls right 40.9% , down-calls 24.5%. 85% of calls were 'sideways'."
+  "headline": "15,794 graded predictions over ~5y. Direction 32.5%. Up-calls right 40.9% , down-calls 24.5%. 85% of calls were 'sideways'.",
+  "learned": {
+    "model": "ridge_return_v1",
+    "trained_at": "2026-09-08T14:01:53",
+    "walkforward": {
+      "mean_pnl_pct": 0.584,
+      "sharpe_like": 0.098,
+      "hit_rate_pct": 55.767,
+      "deployed_pct": 52.983,
+      "up_precision_pct": 56.233,
+      "down_precision_pct": 47.3
+    },
+    "baseline_blend_v1": {
+      "mean_pnl_pct": -0.043,
+      "sharpe_like": -0.014,
+      "deployed_pct": 15.3
+    },
+    "activated": true,
+    "span": [
+      "2022-07-05",
+      "2026-08-16"
+    ],
+    "n_samples": 26266
+  }
 }

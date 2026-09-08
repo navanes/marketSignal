@@ -83,6 +83,9 @@ def backtest_symbol(conn: sqlite3.Connection, symbol: str, step: int) -> int:
             analytics = app.analytics_summary(window, "1y", horizon)
             if not analytics.get("has_price_history"):
                 continue
+            # Always the hand-weighted blend — this file is the fixed baseline
+            # reference. The learned model's honest out-of-sample numbers come
+            # from train.py's walk-forward and land in scorecard.json["learned"].
             fc = app.directional_forecast(quote, neutral_sentiment, analytics)
             start = quote["price"]
             future = series[t + sessions]["close"]

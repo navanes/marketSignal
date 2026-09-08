@@ -21,6 +21,11 @@ STATIC_DIR = ROOT / "static"
 DATA_DIR = ROOT / "data"
 REPORTS_PATH = DATA_DIR / "reports.json"
 PREDICTIONS_DB = DATA_DIR / "predictions.sqlite3"
+MODEL_PATH = DATA_DIR / "model.json"
+# Which forecast model is live. "blend_v1" = the hand-weighted blend;
+# "ridge_return_v1" = the learned model in data/model.json (only worth turning
+# on once train.py says it beats the incumbent out-of-sample).
+ACTIVE_MODEL = os.environ.get("MARKETSIGNAL_MODEL", "ridge_return_v1").strip()
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", "8000"))
 
@@ -725,6 +730,84 @@ def directional_forecast(
         "target_price": round(price * (1 + expected_return_pct / 100), 4) if price else None,
         "horizon_days": horizon_days,
         "components": sorted(components, key=lambda c: -abs(c["contribution"])),
+    }
+
+
+_LEARNED_MODEL: dict[str, Any] | None = None
+_LEARNED_MODEL_MTIME: float = 0.0
+
+
+def _learned_model() -> dict[str, Any] | None:
+    """data/model.json, reloaded if it changes on disk."""
+    global _LEARNED_MODEL, _LEARNED_MODEL_MTIME
+    try:
+        mtime = MODEL_PATH.stat().st_mtime
+    except OSError:
+        _LEARNED_MODEL = None
+        return None
+    if _LEARNED_MODEL is None or mtime != _LEARNED_MODEL_MTIME:
+        try:
+            _LEARNED_MODEL = json.loads(MODEL_PATH.read_text())
+            _LEARNED_MODEL_MTIME = mtime
+        except (OSError, ValueError):
+            _LEARNED_MODEL = None
+    return _LEARNED_MODEL
+
+
+def learned_forecast(
+    series: list[dict[str, Any]], quote: dict[str, Any], analytics: dict[str, Any], horizon_days: int
+) -> dict[str, Any] | None:
+    """The learned return model's call, in the same shape as directional_forecast.
+    Returns None (caller falls back to the blend) unless ACTIVE_MODEL selects it
+    and data/model.json is present and usable."""
+    model = _learned_model()
+    if ACTIVE_MODEL != "ridge_return_v1" or not model or not series:
+        return None
+    import features as _F  # local import avoids a features<->app import cycle
+
+    feats = _F.extract_features(series, horizon_days, analytics)
+    price = quote.get("price")
+    if feats is None or not isinstance(price, (int, float)):
+        return None
+
+    order = model.get("feature_names", _F.FEATURE_NAMES)
+    x = [feats.get(name, 0.0) for name in order]
+    mean, std, coef = model["mean"], model["std"], model["coef"]
+    z = [(x[j] - mean[j]) / (std[j] or 1.0) for j in range(len(x))]
+    expected_return_pct = model["intercept"] + sum(z[j] * coef[j] for j in range(len(x)))
+
+    sessions = horizon_sessions(horizon_days)
+    daily_vol = _F.realized_daily_vol(series)
+    band_pct = max(0.2, model.get("band_k", 0.6) * daily_vol * (sessions ** 0.5) * 100.0)
+    if expected_return_pct >= band_pct:
+        direction = "up"
+    elif expected_return_pct <= -band_pct:
+        direction = "down"
+    else:
+        direction = "sideways"
+
+    strength = abs(expected_return_pct) / band_pct if band_pct else 0.0
+    confidence = (
+        "high" if strength >= 2.0
+        else "medium-high" if strength >= 1.4
+        else "medium" if strength >= 1.0
+        else "low-medium" if strength >= 0.6
+        else "low"
+    )
+    return {
+        "model": model.get("model", "ridge_return_v1"),
+        "direction": direction,
+        "score": round(max(-1.0, min(1.0, expected_return_pct / (band_pct * 3 or 1))), 3),
+        "expected_return_pct": round(expected_return_pct, 3),
+        "band_pct": round(band_pct, 3),
+        "confidence": confidence,
+        "target_price": round(price * (1 + expected_return_pct / 100), 4),
+        "horizon_days": horizon_days,
+        "components": [
+            {"name": name, "weight": round(coef[i], 4), "value": round(x[i], 4),
+             "contribution": round(z[i] * coef[i], 4)}
+            for i, name in enumerate(order)
+        ],
     }
 
 
@@ -1552,7 +1635,9 @@ def research(query: str, period: str = "6mo", horizon_days: int = DEFAULT_HORIZO
     sentiment = news_sentiment(news)
     analytics = analytics_summary(series, selected_period, horizon_days)
     signal = build_signal(quote, sentiment, analytics)
-    forecast_model = directional_forecast(quote, sentiment, analytics)
+    forecast_model = learned_forecast(series, quote, analytics, horizon_days) or directional_forecast(
+        quote, sentiment, analytics
+    )
     decision_flow(quote, sentiment, signal, analytics)
     report = ai_report(query, quote, sentiment, signal, analytics) or deterministic_report(
         query, quote, sentiment, signal, analytics
