@@ -1629,6 +1629,13 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/recommendation":
             self.send_json(200, buy_recommendation())
             return
+        if parsed.path == "/api/scorecard":
+            path = DATA_DIR / "scorecard.json"
+            if path.exists():
+                self.send_json(200, json.loads(path.read_text()))
+            else:
+                self.send_json(200, {"sample": 0, "headline": "No backtest yet — run: python3 backtest.py"})
+            return
         if parsed.path.startswith("/static/"):
             rel = parsed.path.removeprefix("/static/")
             target = (STATIC_DIR / rel).resolve()

@@ -439,6 +439,73 @@ button:disabled {
   font-style: italic;
 }
 
+.scorecard {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.scorecard > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.scorecard > summary::-webkit-details-marker { display: none; }
+.scorecard > summary::before { content: "▸ "; color: var(--muted); }
+.scorecard[open] > summary::before { content: "▾ "; }
+
+.scorecard-headline {
+  font-size: 12.5px;
+  color: var(--ink);
+}
+
+.scorecard-body { margin-top: 10px; }
+
+.scorecard-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.scorecard-cell {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+}
+
+.scorecard-cell span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.scorecard-cell strong { font-size: 14px; }
+
+.scorecard-line {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.scorecard-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .scorecard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .prediction-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);

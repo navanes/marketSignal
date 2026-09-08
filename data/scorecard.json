@@ -1,0 +1,248 @@
+{
+  "generated_at": "2026-09-08T13:40:35",
+  "years": 5,
+  "symbols": 41,
+  "sample": 15794,
+  "overall": {
+    "direction_accuracy_pct": 32.5,
+    "avg_target_error_pct": 5.57,
+    "brier": 0.2732,
+    "sideways_share_pct": 84.7,
+    "up_call": {
+      "n": 1290,
+      "precision_pct": 40.9,
+      "avg_realized_return_pct": 1.35
+    },
+    "down_call": {
+      "n": 1130,
+      "precision_pct": 24.5,
+      "avg_realized_return_pct": 2.14
+    }
+  },
+  "by_confidence": [
+    {
+      "confidence": "low",
+      "n": 6158,
+      "accuracy_pct": 34.0,
+      "avg_error_pct": 5.47,
+      "realized_avg_return_pct": 1.32
+    },
+    {
+      "confidence": "low-medium",
+      "n": 5957,
+      "accuracy_pct": 31.8,
+      "avg_error_pct": 5.58,
+      "realized_avg_return_pct": 1.3
+    },
+    {
+      "confidence": "medium",
+      "n": 3301,
+      "accuracy_pct": 31.6,
+      "avg_error_pct": 5.54,
+      "realized_avg_return_pct": 1.3
+    },
+    {
+      "confidence": "medium-high",
+      "n": 366,
+      "accuracy_pct": 27.6,
+      "avg_error_pct": 7.28,
+      "realized_avg_return_pct": 1.73
+    },
+    {
+      "confidence": "high",
+      "n": 12,
+      "accuracy_pct": 41.7,
+      "avg_error_pct": 5.98,
+      "realized_avg_return_pct": 0.54
+    }
+  ],
+  "by_direction": [
+    {
+      "predicted_direction": "sideways",
+      "n": 13374,
+      "accuracy_pct": 32.4,
+      "avg_error_pct": 5.4,
+      "realized_avg_return_pct": 1.25
+    },
+    {
+      "predicted_direction": "up",
+      "n": 1290,
+      "accuracy_pct": 40.9,
+      "avg_error_pct": 5.34,
+      "realized_avg_return_pct": 1.35
+    },
+    {
+      "predicted_direction": "down",
+      "n": 1130,
+      "accuracy_pct": 24.5,
+      "avg_error_pct": 7.82,
+      "realized_avg_return_pct": 2.14
+    }
+  ],
+  "by_regime": [
+    {
+      "regime": "mixed",
+      "n": 9258,
+      "accuracy_pct": 31.7,
+      "avg_error_pct": 5.67,
+      "realized_avg_return_pct": 1.31
+    },
+    {
+      "regime": "bullish",
+      "n": 4174,
+      "accuracy_pct": 35.0,
+      "avg_error_pct": 5.2,
+      "realized_avg_return_pct": 1.06
+    },
+    {
+      "regime": "bearish",
+      "n": 2362,
+      "accuracy_pct": 31.4,
+      "avg_error_pct": 5.82,
+      "realized_avg_return_pct": 1.82
+    }
+  ],
+  "by_horizon": [
+    {
+      "horizon_days": 10,
+      "n": 7897,
+      "accuracy_pct": 33.3,
+      "avg_error_pct": 3.92,
+      "realized_avg_return_pct": 0.61
+    },
+    {
+      "horizon_days": 30,
+      "n": 7897,
+      "accuracy_pct": 31.7,
+      "avg_error_pct": 7.21,
+      "realized_avg_return_pct": 2.03
+    }
+  ],
+  "best_symbols": [
+    {
+      "symbol": "BTC-USD",
+      "n": 604,
+      "accuracy_pct": 38.9,
+      "avg_error_pct": 7.3,
+      "realized_avg_return_pct": 1.65
+    },
+    {
+      "symbol": "PG",
+      "n": 374,
+      "accuracy_pct": 38.0,
+      "avg_error_pct": 2.8,
+      "realized_avg_return_pct": 0.05
+    },
+    {
+      "symbol": "KO",
+      "n": 374,
+      "accuracy_pct": 37.7,
+      "avg_error_pct": 2.75,
+      "realized_avg_return_pct": 0.49
+    },
+    {
+      "symbol": "META",
+      "n": 374,
+      "accuracy_pct": 36.6,
+      "avg_error_pct": 7.43,
+      "realized_avg_return_pct": 2.88
+    },
+    {
+      "symbol": "LLY",
+      "n": 374,
+      "accuracy_pct": 36.6,
+      "avg_error_pct": 6.03,
+      "realized_avg_return_pct": 1.87
+    },
+    {
+      "symbol": "ABBV",
+      "n": 374,
+      "accuracy_pct": 36.1,
+      "avg_error_pct": 4.3,
+      "realized_avg_return_pct": 0.97
+    }
+  ],
+  "worst_symbols": [
+    {
+      "symbol": "AAPL",
+      "n": 374,
+      "accuracy_pct": 25.9,
+      "avg_error_pct": 5.05,
+      "realized_avg_return_pct": 1.25
+    },
+    {
+      "symbol": "COST",
+      "n": 374,
+      "accuracy_pct": 28.1,
+      "avg_error_pct": 4.15,
+      "realized_avg_return_pct": 0.93
+    },
+    {
+      "symbol": "BAC",
+      "n": 374,
+      "accuracy_pct": 28.3,
+      "avg_error_pct": 5.29,
+      "realized_avg_return_pct": 1.03
+    },
+    {
+      "symbol": "NFLX",
+      "n": 374,
+      "accuracy_pct": 28.3,
+      "avg_error_pct": 7.47,
+      "realized_avg_return_pct": 1.81
+    },
+    {
+      "symbol": "MSFT",
+      "n": 374,
+      "accuracy_pct": 28.9,
+      "avg_error_pct": 5.09,
+      "realized_avg_return_pct": 1.11
+    },
+    {
+      "symbol": "QQQ",
+      "n": 374,
+      "accuracy_pct": 29.1,
+      "avg_error_pct": 3.8,
+      "realized_avg_return_pct": 1.44
+    }
+  ],
+  "calibration": [
+    {
+      "predicted_bucket": "< -3%",
+      "n": 890,
+      "predicted_avg_pct": -5.36,
+      "realized_avg_pct": 3.44
+    },
+    {
+      "predicted_bucket": "-3..-1%",
+      "n": 2143,
+      "predicted_avg_pct": -1.73,
+      "realized_avg_pct": 1.43
+    },
+    {
+      "predicted_bucket": "-1..+1%",
+      "n": 8491,
+      "predicted_avg_pct": 0.04,
+      "realized_avg_pct": 0.94
+    },
+    {
+      "predicted_bucket": "+1..+3%",
+      "n": 3308,
+      "predicted_avg_pct": 1.75,
+      "realized_avg_pct": 1.44
+    },
+    {
+      "predicted_bucket": "+3..+6%",
+      "n": 800,
+      "predicted_avg_pct": 4.01,
+      "realized_avg_pct": 1.91
+    },
+    {
+      "predicted_bucket": "> +6%",
+      "n": 162,
+      "predicted_avg_pct": 7.59,
+      "realized_avg_pct": 2.6
+    }
+  ],
+  "headline": "15,794 graded predictions over ~5y. Direction 32.5%. Up-calls right 40.9% , down-calls 24.5%. 85% of calls were 'sideways'."
+}

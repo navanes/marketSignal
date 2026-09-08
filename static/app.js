@@ -51,6 +51,10 @@ const buyPickSymbol = document.querySelector("#buyPickSymbol");
 const buyPickReason = document.querySelector("#buyPickReason");
 const buyPickRunner = document.querySelector("#buyPickRunner");
 const buyPickNote = document.querySelector("#buyPickNote");
+const scorecardHeadline = document.querySelector("#scorecardHeadline");
+const scorecardGrid = document.querySelector("#scorecardGrid");
+const scorecardRegime = document.querySelector("#scorecardRegime");
+const scorecardSymbols = document.querySelector("#scorecardSymbols");
 const predictionTotal = document.querySelector("#predictionTotal");
 const predictionAccuracy = document.querySelector("#predictionAccuracy");
 const predictionError = document.querySelector("#predictionError");
@@ -1024,6 +1028,47 @@ async function loadBuyRecommendation() {
     buyPickReason.textContent = "";
     buyPickRunner.textContent = "";
     buyPickNote.textContent = "";
+  }
+  loadScorecard();
+}
+
+function renderScorecard(data = {}) {
+  if (!data || !data.sample) {
+    scorecardHeadline.textContent = data.headline || "not run yet";
+    scorecardGrid.innerHTML = "";
+    scorecardRegime.textContent = "";
+    scorecardSymbols.textContent = "";
+    return;
+  }
+  const o = data.overall || {};
+  scorecardHeadline.textContent = data.headline || "";
+  const cells = [
+    ["Direction accuracy", formatPct(o.direction_accuracy_pct)],
+    ["Up-call precision", formatPct(o.up_call?.precision_pct)],
+    ["Down-call precision", formatPct(o.down_call?.precision_pct)],
+    ["Called 'sideways'", formatPct(o.sideways_share_pct)],
+    ["Brier (0.25 = coin flip)", o.brier ?? "-"],
+    ["Avg target error", formatPct(o.avg_target_error_pct)],
+  ];
+  scorecardGrid.innerHTML = cells
+    .map(([k, v]) => `<div class="scorecard-cell"><span>${k}</span><strong>${v}</strong></div>`)
+    .join("");
+  const regime = (data.by_regime || [])
+    .map((r) => `${r.regime} ${formatPct(r.accuracy_pct)}`)
+    .join(" · ");
+  scorecardRegime.textContent = regime ? `By regime: ${regime}` : "";
+  const best = (data.best_symbols || []).slice(0, 4).map((s) => `${s.symbol} ${formatPct(s.accuracy_pct)}`).join(", ");
+  const worst = (data.worst_symbols || []).slice(0, 4).map((s) => `${s.symbol} ${formatPct(s.accuracy_pct)}`).join(", ");
+  scorecardSymbols.textContent = best ? `Best: ${best}  —  Worst: ${worst}` : "";
+}
+
+async function loadScorecard() {
+  try {
+    const response = await fetch("/api/scorecard");
+    const data = await response.json();
+    renderScorecard(data);
+  } catch {
+    scorecardHeadline.textContent = "could not load scorecard";
   }
 }
 
