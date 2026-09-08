@@ -50,6 +50,7 @@ const buyPickAsOf = document.querySelector("#buyPickAsOf");
 const buyPickSymbol = document.querySelector("#buyPickSymbol");
 const buyPickReason = document.querySelector("#buyPickReason");
 const buyPickRunner = document.querySelector("#buyPickRunner");
+const buyPickRanked = document.querySelector("#buyPickRanked");
 const buyPickNote = document.querySelector("#buyPickNote");
 const scorecardHeadline = document.querySelector("#scorecardHeadline");
 const scorecardGrid = document.querySelector("#scorecardGrid");
@@ -1004,6 +1005,7 @@ function renderBuyRecommendation(data = {}) {
     buyPickSymbol.textContent = data.note || "Not enough prediction history yet.";
     buyPickReason.textContent = "";
     buyPickRunner.textContent = "";
+    buyPickRanked.innerHTML = "";
     buyPickNote.textContent = "";
     return;
   }
@@ -1014,6 +1016,18 @@ function renderBuyRecommendation(data = {}) {
   buyPickRunner.textContent = data.runner_up
     ? `Runner-up: ${data.runner_up.symbol} — ${data.runner_up.reason}`
     : "";
+  const ranked = data.ranked || [];
+  buyPickRanked.innerHTML = ranked
+    .map((r) => {
+      const arrow = r.direction === "up" ? "▲" : r.direction === "down" ? "▼" : "▬";
+      const move = typeof r.expected_return_pct === "number"
+        ? `${r.expected_return_pct >= 0 ? "+" : ""}${r.expected_return_pct.toFixed(1)}%`
+        : r.direction;
+      const hz = r.horizon_days ? `/${r.horizon_days}d` : "";
+      const acc = typeof r.accuracy_pct === "number" ? ` · ${r.accuracy_pct.toFixed(0)}% hit` : "";
+      return `<li><span class="rk-sym">${arrow} ${r.symbol}</span><span class="rk-meta">${move}${hz}${acc}</span></li>`;
+    })
+    .join("");
   buyPickNote.textContent = data.note || "";
 }
 
@@ -1056,12 +1070,12 @@ function renderScorecard(data = {}) {
   const learned = data.learned;
   if (learned && learned.walkforward) {
     const w = learned.walkforward;
-    const b = learned.baseline_blend_v1 || {};
+    const b = learned.incumbent || learned.baseline_blend_v1 || {};
+    const bp = typeof b.mean_pnl_pct === "number" ? `${b.mean_pnl_pct >= 0 ? "+" : ""}${b.mean_pnl_pct}%/trade` : "n/a";
     scorecardRegime.textContent =
-      `Learned model (${learned.activated ? "LIVE" : "not activated"}, walk-forward, out-of-sample): ` +
+      `${learned.model || "learned model"} (${learned.activated ? "LIVE" : "not activated"}, walk-forward, out-of-sample): ` +
       `${formatPct(w.hit_rate_pct)} directional hit · ${w.mean_pnl_pct >= 0 ? "+" : ""}${w.mean_pnl_pct}%/trade · ` +
-      `Sharpe ${w.sharpe_like} · deployed ${formatPct(w.deployed_pct)}  ` +
-      `— vs blend_v1 ${b.mean_pnl_pct >= 0 ? "+" : ""}${b.mean_pnl_pct}%/trade`;
+      `Sharpe ${w.sharpe_like} · deployed ${formatPct(w.deployed_pct)}  — prior champion ${bp}`;
   } else {
     const regime = (data.by_regime || [])
       .map((r) => `${r.regime} ${formatPct(r.accuracy_pct)}`)

@@ -22,10 +22,11 @@ DATA_DIR = ROOT / "data"
 REPORTS_PATH = DATA_DIR / "reports.json"
 PREDICTIONS_DB = DATA_DIR / "predictions.sqlite3"
 MODEL_PATH = DATA_DIR / "model.json"
-# Which forecast model is live. "blend_v1" = the hand-weighted blend;
-# "ridge_return_v1" = the learned model in data/model.json (only worth turning
-# on once train.py says it beats the incumbent out-of-sample).
-ACTIVE_MODEL = os.environ.get("MARKETSIGNAL_MODEL", "ridge_return_v1").strip()
+# Which forecast model is live. "learned" = whatever champion sits in
+# data/model.json (train.py only writes one there when it beats the incumbent
+# out-of-sample). "blend_v1" = force the old hand-weighted blend. Or name a
+# specific model (e.g. "ridge_return_v1") to require an exact match.
+ACTIVE_MODEL = os.environ.get("MARKETSIGNAL_MODEL", "learned").strip()
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("PORT", "8000"))
 
@@ -761,7 +762,11 @@ def learned_forecast(
     Returns None (caller falls back to the blend) unless ACTIVE_MODEL selects it
     and data/model.json is present and usable."""
     model = _learned_model()
-    if ACTIVE_MODEL != "ridge_return_v1" or not model or not series:
+    if not model or not series:
+        return None
+    if ACTIVE_MODEL == "blend_v1":
+        return None
+    if ACTIVE_MODEL not in ("learned", model.get("model")):
         return None
     import features as _F  # local import avoids a features<->app import cycle
 
@@ -772,9 +777,12 @@ def learned_forecast(
 
     order = model.get("feature_names", _F.FEATURE_NAMES)
     x = [feats.get(name, 0.0) for name in order]
-    mean, std, coef = model["mean"], model["std"], model["coef"]
-    z = [(x[j] - mean[j]) / (std[j] or 1.0) for j in range(len(x))]
-    expected_return_pct = model["intercept"] + sum(z[j] * coef[j] for j in range(len(x)))
+    if model.get("model_kind") == "gbt":
+        expected_return_pct = _gbt_predict(model, x)
+    else:
+        mean, std, coef = model["mean"], model["std"], model["coef"]
+        z = [(x[j] - mean[j]) / (std[j] or 1.0) for j in range(len(x))]
+        expected_return_pct = model["intercept"] + sum(z[j] * coef[j] for j in range(len(x)))
 
     sessions = horizon_sessions(horizon_days)
     daily_vol = _F.realized_daily_vol(series)
@@ -794,8 +802,16 @@ def learned_forecast(
         else "low-medium" if strength >= 0.6
         else "low"
     )
+    if model.get("model_kind") == "gbt":
+        components = [{"name": name, "value": round(x[i], 4)} for i, name in enumerate(order)]
+    else:
+        components = [
+            {"name": name, "weight": round(model["coef"][i], 4), "value": round(x[i], 4),
+             "contribution": round(((x[i] - model["mean"][i]) / (model["std"][i] or 1.0)) * model["coef"][i], 4)}
+            for i, name in enumerate(order)
+        ]
     return {
-        "model": model.get("model", "ridge_return_v1"),
+        "model": model.get("model", "learned"),
         "direction": direction,
         "score": round(max(-1.0, min(1.0, expected_return_pct / (band_pct * 3 or 1))), 3),
         "expected_return_pct": round(expected_return_pct, 3),
@@ -803,12 +819,19 @@ def learned_forecast(
         "confidence": confidence,
         "target_price": round(price * (1 + expected_return_pct / 100), 4),
         "horizon_days": horizon_days,
-        "components": [
-            {"name": name, "weight": round(coef[i], 4), "value": round(x[i], 4),
-             "contribution": round(z[i] * coef[i], 4)}
-            for i, name in enumerate(order)
-        ],
+        "components": components,
     }
+
+
+def _gbt_predict(model: dict[str, Any], x: list[float]) -> float:
+    total = model["base"]
+    lr = model["learning_rate"]
+    for tree in model["trees"]:
+        node = tree
+        while "v" not in node:
+            node = node["l"] if x[node["f"]] <= node["t"] else node["r"]
+        total += lr * node["v"]
+    return total
 
 
 def decision_flow(quote: dict[str, Any], sentiment: dict[str, Any], signal: dict[str, Any], analytics: dict[str, Any]) -> list[dict[str, str]]:
@@ -1150,17 +1173,37 @@ def buy_recommendation() -> dict[str, Any]:
         if row.get("target_error_pct") is not None:
             rec["errors"].append(abs(row["target_error_pct"]))
 
+    # Per-symbol accuracy from the walk-forward backtest — a prior for symbols
+    # the live log hasn't graded much yet.
+    backtest_acc: dict[str, float] = {}
+    try:
+        backtest_acc = json.loads((DATA_DIR / "scorecard.json").read_text()).get("by_symbol_all") or {}
+    except Exception:
+        pass
+
+    # One row per symbol for the ranking — prefer the freshest 30-day call
+    # (steadier than 10-day), else the newest of anything.
     latest: dict[str, dict[str, Any]] = {}
     for row in rows:  # already newest-first
-        latest.setdefault(row["symbol"], row)
+        cur = latest.get(row["symbol"])
+        if cur is None:
+            latest[row["symbol"]] = row
+        elif cur.get("horizon_days") != 30 and row.get("horizon_days") == 30:
+            latest[row["symbol"]] = row
 
     scored: list[dict[str, Any]] = []
     for symbol, row in latest.items():
         rec = record.get(symbol, {"n": 0, "correct": 0, "errors": []})
         hit_rate = (rec["correct"] / rec["n"]) if rec["n"] else None
-        # Only trust a hit rate with at least 3 evaluated calls; otherwise treat
-        # reliability as a coin flip so a lucky 1/1 doesn't win the whole thing.
-        reliability = hit_rate if (hit_rate is not None and rec["n"] >= 3) else 0.5
+        # Reliability = live hit rate once there's enough of it, otherwise lean on
+        # the backtest's per-symbol accuracy, otherwise a coin flip.
+        bt = backtest_acc.get(symbol)
+        if hit_rate is not None and rec["n"] >= 5:
+            reliability = 0.7 * hit_rate + 0.3 * ((bt / 100.0) if bt is not None else hit_rate)
+        elif bt is not None:
+            reliability = bt / 100.0
+        else:
+            reliability = 0.5
         direction = (row.get("predicted_direction") or "sideways").lower()
         exp = row.get("expected_return_pct")
         conf = (row.get("confidence") or "").lower()
@@ -1222,6 +1265,18 @@ def buy_recommendation() -> dict[str, Any]:
     if runner_up:
         runner_up["reason"] = phrase(runner_up)
 
+    ranked = [
+        {
+            "symbol": item["symbol"],
+            "direction": item["direction"],
+            "expected_return_pct": item["expected_return_pct"],
+            "horizon_days": item["horizon_days"],
+            "confidence": item["confidence"],
+            "accuracy_pct": item["accuracy_pct"] if item["accuracy_pct"] is not None else backtest_acc.get(item["symbol"]),
+        }
+        for item in scored[:8]
+    ]
+
     for item in (pick, runner_up):
         if item is not None:
             item.pop("_score", None)
@@ -1230,6 +1285,7 @@ def buy_recommendation() -> dict[str, Any]:
         "as_of": dt.datetime.now().isoformat(timespec="seconds"),
         "pick": pick,
         "runner_up": runner_up,
+        "ranked": ranked,
         "note": note,
     }
 

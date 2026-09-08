@@ -432,6 +432,31 @@ button:disabled {
 
 .buy-pick-runner:empty { display: none; }
 
+.buy-pick-ranked {
+  margin: 8px 0 6px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 16px;
+}
+
+.buy-pick-ranked li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.buy-pick-ranked .rk-sym { font-weight: 700; color: var(--ink); }
+.buy-pick-ranked .rk-meta { color: var(--muted); }
+
+@media (max-width: 640px) {
+  .buy-pick-ranked { grid-template-columns: 1fr; }
+}
+
 .buy-pick-note {
   margin: 0;
   font-size: 11.5px;

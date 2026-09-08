@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-08T13:40:35",
+  "generated_at": "2026-09-08T14:59:39",
   "years": 5,
   "symbols": 41,
   "sample": 15794,
@@ -206,6 +206,49 @@
       "realized_avg_return_pct": 1.44
     }
   ],
+  "by_symbol_all": {
+    "BTC-USD": 38.9,
+    "ETH-USD": 34.9,
+    "AAPL": 25.9,
+    "MSFT": 28.9,
+    "GOOGL": 29.4,
+    "AMZN": 31.3,
+    "META": 36.6,
+    "NVDA": 32.9,
+    "AVGO": 35.6,
+    "AMD": 31.3,
+    "TSLA": 32.9,
+    "NFLX": 28.3,
+    "CRM": 31.0,
+    "ORCL": 31.3,
+    "ADBE": 30.7,
+    "JPM": 29.1,
+    "BAC": 28.3,
+    "GS": 30.2,
+    "V": 35.6,
+    "MA": 35.8,
+    "BRK-B": 33.7,
+    "UNH": 34.2,
+    "LLY": 36.6,
+    "JNJ": 30.2,
+    "ABBV": 36.1,
+    "MRK": 32.9,
+    "WMT": 33.2,
+    "COST": 28.1,
+    "HD": 32.1,
+    "MCD": 29.7,
+    "KO": 37.7,
+    "PG": 38.0,
+    "XOM": 35.0,
+    "CVX": 29.7,
+    "CAT": 30.5,
+    "BA": 29.1,
+    "GE": 34.5,
+    "SPY": 32.1,
+    "QQQ": 29.1,
+    "IWM": 32.9,
+    "DIA": 32.9
+  },
   "calibration": [
     {
       "predicted_bucket": "< -3%",
@@ -247,6 +290,7 @@
   "headline": "15,794 graded predictions over ~5y. Direction 32.5%. Up-calls right 40.9% , down-calls 24.5%. 85% of calls were 'sideways'.",
   "learned": {
     "model": "ridge_return_v1",
+    "model_kind": "ridge",
     "trained_at": "2026-09-08T14:01:53",
     "walkforward": {
       "mean_pnl_pct": 0.584,
@@ -256,7 +300,7 @@
       "up_precision_pct": 56.233,
       "down_precision_pct": 47.3
     },
-    "baseline_blend_v1": {
+    "incumbent": {
       "mean_pnl_pct": -0.043,
       "sharpe_like": -0.014,
       "deployed_pct": 15.3

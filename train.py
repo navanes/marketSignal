@@ -118,16 +118,16 @@ def _direction(value: float, band: float) -> str:
     return "sideways"
 
 
-def score(rows: list[dict], model: dict, band_k: float) -> dict:
+def score(rows: list[dict], predict, band_k: float) -> dict:
     """Judge the model the way money would: take a +1/-1/0 position from the
     call and tally realised P&L. 'Always sideways' scores zero here, so it
-    can't win by refusing to commit."""
+    can't win by refusing to commit. `predict` maps a feature vector -> % move."""
     n = len(rows)
     pnls: list[float] = []
     up_hit = up_called = down_hit = down_called = nonflat = 0
     directional_correct = directional_total = 0
     for r in rows:
-        pred = ridge_predict(model, r["x"])
+        pred = predict(r["x"])
         band = max(0.2, band_k * r["daily_vol"] * math.sqrt(r["sessions"]) * 100.0)
         pdir = _direction(pred, band)
         actual_move = r["y"]
@@ -193,24 +193,50 @@ def _objective(s: dict) -> float:
     return s["sharpe_like"]
 
 
-def best_band_k(rows: list[dict], model: dict) -> float:
-    return max(BAND_KS, key=lambda k: _objective(score(rows, model, k)))
+def best_band_k(rows: list[dict], predict) -> float:
+    return max(BAND_KS, key=lambda k: _objective(score(rows, predict, k)))
+
+
+def incumbent_walkforward() -> dict:
+    """The current champion's recorded out-of-sample P&L (data/model.json), or
+    blend_v1 if there's no learned model yet. New models must beat this."""
+    if MODEL_PATH.exists():
+        try:
+            wf = json.loads(MODEL_PATH.read_text()).get("walkforward")
+            if wf and wf.get("mean_pnl_pct") is not None:
+                return wf
+        except Exception:
+            pass
+    return blend_v1_pnl()
 
 
 # ---- main ------------------------------------------------------------
 
+def _fit_model(kind: str, tx: list[list[float]], ty: list[float], ridge_lambda: float):
+    """Return (model_dict, predict_fn) for the chosen model kind."""
+    if kind == "gbt":
+        import gbt
+        model = gbt.fit(tx, ty)
+        return model, (lambda x: gbt.predict_one(model, x))
+    model = ridge_fit(tx, ty, ridge_lambda)
+    return model, (lambda x: ridge_predict(model, x))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=["gbt", "ridge"], default="gbt")
     parser.add_argument("--step", type=int, default=3)
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--symbols", default="")
-    parser.add_argument("--force", action="store_true", help="write model.json even if it doesn't beat baseline")
+    parser.add_argument("--force", action="store_true", help="write model.json even if it doesn't beat the incumbent")
     args = parser.parse_args()
 
+    kind = args.model
+    model_name = "gbt_return_v1" if kind == "gbt" else "ridge_return_v1"
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()] or SYMBOLS
-    baseline_pnl = blend_v1_pnl()
+    incumbent = incumbent_walkforward()
 
-    print(f"Building walk-forward dataset from {len(symbols)} symbols...")
+    print(f"Training {model_name} — walk-forward dataset from {len(symbols)} symbols...")
     started = time.time()
     rows = build_rows(symbols, args.step)
     if len(rows) < 500:
@@ -218,11 +244,10 @@ def main() -> int:
         return 1
     print(f"{len(rows):,} rows spanning {rows[0]['date']} .. {rows[-1]['date']}")
 
-    # Expanding-window walk-forward: fit on everything before a cut, test on the
-    # next slice. Pick lambda on the first fold, reuse it.
     cuts = [int(len(rows) * (0.4 + 0.5 * k / args.folds)) for k in range(args.folds)]
     fold_scores: list[dict] = []
     chosen_lambda = RIDGE_LAMBDAS[len(RIDGE_LAMBDAS) // 2]
+
     for fi, cut in enumerate(cuts):
         train_rows = rows[:cut]
         test_rows = rows[cut: cut + max(1, len(rows) // (args.folds + 2))]
@@ -230,22 +255,22 @@ def main() -> int:
             continue
         tx = [r["x"] for r in train_rows]
         ty = [r["y"] for r in train_rows]
-        if fi == 0:
+        if fi == 0 and kind == "ridge":
             inner_cut = int(len(train_rows) * 0.8)
-            best_lam, best_acc = chosen_lambda, -1.0
+            best_lam, best_obj = chosen_lambda, -1e9
             for lam in RIDGE_LAMBDAS:
                 m = ridge_fit(tx[:inner_cut], ty[:inner_cut], lam)
-                k = best_band_k(train_rows[inner_cut:], m)
-                acc = _objective(score(train_rows[inner_cut:], m, k))
-                if acc > best_acc:
-                    best_lam, best_acc = lam, acc
+                pf = lambda x, mm=m: ridge_predict(mm, x)
+                obj = _objective(score(train_rows[inner_cut:], pf, best_band_k(train_rows[inner_cut:], pf)))
+                if obj > best_obj:
+                    best_lam, best_obj = lam, obj
             chosen_lambda = best_lam
             print(f"  chosen ridge lambda = {chosen_lambda}")
-        model = ridge_fit(tx, ty, chosen_lambda)
-        band_k = best_band_k(train_rows, model)
-        s = score(test_rows, model, band_k)
-        s["fold"] = fi
-        s["band_k"] = band_k
+
+        model, predict = _fit_model(kind, tx, ty, chosen_lambda)
+        band_k = best_band_k(train_rows, predict)
+        s = score(test_rows, predict, band_k)
+        s["fold"], s["band_k"] = fi, band_k
         fold_scores.append(s)
         print(f"  fold {fi}: n={s['n']} pnl/trade={s['mean_pnl_pct']}% sharpe={s['sharpe_like']} "
               f"hit={s['hit_rate_pct']}% deployed={s['deployed_pct']}% "
@@ -259,72 +284,67 @@ def main() -> int:
         vals = [s[key] for s in fold_scores if s.get(key) is not None]
         return round(sum(vals) / len(vals), 3) if vals else None
 
-    wf = {
-        "mean_pnl_pct": avg("mean_pnl_pct"),
-        "sharpe_like": avg("sharpe_like"),
-        "hit_rate_pct": avg("hit_rate_pct"),
-        "deployed_pct": avg("deployed_pct"),
-        "up_precision_pct": avg("up_precision_pct"),
-        "down_precision_pct": avg("down_precision_pct"),
-    }
+    wf = {k: avg(k) for k in
+          ("mean_pnl_pct", "sharpe_like", "hit_rate_pct", "deployed_pct", "up_precision_pct", "down_precision_pct")}
 
-    final = ridge_fit([r["x"] for r in rows], [r["y"] for r in rows], chosen_lambda)
+    final_model, _ = _fit_model(kind, [r["x"] for r in rows], [r["y"] for r in rows], chosen_lambda)
     final_band_k = round(sum(s["band_k"] for s in fold_scores) / len(fold_scores), 3)
 
     print(f"\nWalk-forward (out-of-sample), +1/-1/0 strategy P&L per trade:")
-    print(f"  learned ridge_return_v1 : {wf['mean_pnl_pct']}%/trade  sharpe {wf['sharpe_like']}  "
+    print(f"  {model_name:16}: {wf['mean_pnl_pct']}%/trade  sharpe {wf['sharpe_like']}  "
           f"hit {wf['hit_rate_pct']}%  deployed {wf['deployed_pct']}%")
-    print(f"  blend_v1 (incumbent)    : {baseline_pnl['mean_pnl_pct']}%/trade  sharpe {baseline_pnl['sharpe_like']}  "
-          f"deployed {baseline_pnl['deployed_pct']}%")
-    print("  feature weights (standardised, biggest first):")
-    for name, w in sorted(zip(F.FEATURE_NAMES, final["coef"]), key=lambda kv: -abs(kv[1])):
-        print(f"    {name:24} {w:+.4f}")
+    print(f"  incumbent       : {incumbent.get('mean_pnl_pct')}%/trade  sharpe {incumbent.get('sharpe_like')}  "
+          f"deployed {incumbent.get('deployed_pct')}%")
+    if kind == "ridge":
+        print("  feature weights (standardised, biggest first):")
+        for name, w in sorted(zip(F.FEATURE_NAMES, final_model["coef"]), key=lambda kv: -abs(kv[1])):
+            print(f"    {name:24} {w:+.4f}")
 
     payload = {
-        "model": "ridge_return_v1",
+        "model": model_name,
+        "model_kind": kind,
         "trained_at": dt.datetime.now().isoformat(timespec="seconds"),
         "feature_names": F.FEATURE_NAMES,
-        "mean": final["mean"],
-        "std": final["std"],
-        "coef": final["coef"],
-        "intercept": final["intercept"],
-        "ridge_lambda": chosen_lambda,
         "band_k": final_band_k,
         "n_samples": len(rows),
         "walkforward": wf,
-        "baseline_blend_v1": baseline_pnl,
+        "incumbent": incumbent,
         "span": [rows[0]["date"], rows[-1]["date"]],
+        **final_model,  # ridge: mean/std/coef/intercept ; gbt: base/learning_rate/trees
     }
+    if kind == "ridge":
+        payload["ridge_lambda"] = chosen_lambda
 
     beats = (
-        (wf["mean_pnl_pct"] or -9) > max(0.0, baseline_pnl["mean_pnl_pct"])
-        and (wf["sharpe_like"] or -9) > max(0.0, baseline_pnl["sharpe_like"])
+        (wf["mean_pnl_pct"] or -9) > max(0.0, incumbent.get("mean_pnl_pct") or 0)
+        and (wf["sharpe_like"] or -9) > max(0.0, incumbent.get("sharpe_like") or 0)
         and (wf["deployed_pct"] or 0) >= MIN_DEPLOYED_PCT
     )
-    # Fold the learned model's honest walk-forward result into the scorecard the
-    # web app shows, so it sits right next to the blend_v1 baseline.
-    try:
-        card = json.loads(SCORECARD_PATH.read_text())
-    except Exception:
-        card = {}
-    card["learned"] = {
-        "model": "ridge_return_v1",
-        "trained_at": payload["trained_at"],
-        "walkforward": wf,
-        "baseline_blend_v1": baseline_pnl,
-        "activated": bool(beats or args.force),
-        "span": payload["span"],
-        "n_samples": len(rows),
-    }
-    SCORECARD_PATH.write_text(json.dumps(card, indent=2))
 
+    # Only the active champion goes in the scorecard the web app shows. A
+    # rejected challenger must not overwrite the champion's numbers there.
     if beats or args.force:
-        MODEL_PATH.write_text(json.dumps(payload, indent=2))
-        print(f"\n✅ Beats the incumbent out-of-sample — wrote {MODEL_PATH}")
-        print("   Activate with:  MARKETSIGNAL_MODEL=ridge_return_v1  (or edit ACTIVE_MODEL in app.py)")
+        try:
+            card = json.loads(SCORECARD_PATH.read_text())
+        except Exception:
+            card = {}
+        card["learned"] = {
+            "model": model_name,
+            "model_kind": kind,
+            "trained_at": payload["trained_at"],
+            "walkforward": wf,
+            "incumbent": incumbent,
+            "activated": True,
+            "span": payload["span"],
+            "n_samples": len(rows),
+        }
+        SCORECARD_PATH.write_text(json.dumps(card, indent=2))
+        MODEL_PATH.write_text(json.dumps(payload))
+        print(f"\n✅ Beats the incumbent out-of-sample — wrote {MODEL_PATH} ({model_name})")
+        print(f"   Activate with:  MARKETSIGNAL_MODEL={model_name}  (or edit ACTIVE_MODEL in app.py)")
     else:
-        (app.DATA_DIR / "model_rejected.json").write_text(json.dumps(payload, indent=2))
-        print("\n❌ Does not clearly beat blend_v1 out-of-sample — not activating. Saved model_rejected.json.")
+        (app.DATA_DIR / "model_rejected.json").write_text(json.dumps(payload))
+        print("\n❌ Does not clearly beat the incumbent out-of-sample — not activating. Saved model_rejected.json.")
 
     print(f"[{(time.time()-started)/60:.1f} min]")
     return 0

@@ -223,6 +223,7 @@ def build_scorecard(conn: sqlite3.Connection, years: int) -> dict:
         "by_horizon": _group(graded, "horizon_days"),
         "best_symbols": ranked_symbols[:6],
         "worst_symbols": ranked_symbols[-6:][::-1],
+        "by_symbol_all": {s["symbol"]: s["accuracy_pct"] for s in by_symbol if s["accuracy_pct"] is not None},
         "calibration": calibration,
         "headline": headline,
     }
@@ -250,6 +251,13 @@ def main() -> int:
             time.sleep(0.8)  # be polite to Yahoo
         scorecard = build_scorecard(conn, args.years)
 
+    # Keep the learned-model block that train.py maintains.
+    try:
+        prior = json.loads(SCORECARD_PATH.read_text())
+        if "learned" in prior:
+            scorecard["learned"] = prior["learned"]
+    except Exception:
+        pass
     SCORECARD_PATH.write_text(json.dumps(scorecard, indent=2))
     mins = (time.time() - started) / 60
     print(f"\nDone: {total:,} graded predictions from {len(symbols)} symbols in {mins:.1f} min")
