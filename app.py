@@ -1035,6 +1035,122 @@ def prediction_accuracy_summary() -> dict[str, Any]:
     }
 
 
+_CONFIDENCE_WEIGHT = {
+    "low": 0.35,
+    "low-medium": 0.5,
+    "medium": 0.7,
+    "medium-high": 0.85,
+    "high": 1.0,
+}
+
+
+def buy_recommendation() -> dict[str, Any]:
+    """One brief "which of the tracked markets would I buy" call, blending each
+    market's latest forecast (direction, expected return, confidence) with how
+    often the model has actually been right on that same market."""
+    rows = prediction_rows(limit=500)
+    if not rows:
+        return {
+            "as_of": dt.datetime.now().isoformat(timespec="seconds"),
+            "pick": None,
+            "runner_up": None,
+            "note": "No predictions logged yet — run research on a few markets first.",
+        }
+
+    record: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row["status"] != "evaluated":
+            continue
+        rec = record.setdefault(row["symbol"], {"n": 0, "correct": 0, "errors": []})
+        rec["n"] += 1
+        rec["correct"] += 1 if row.get("direction_correct") else 0
+        if row.get("target_error_pct") is not None:
+            rec["errors"].append(abs(row["target_error_pct"]))
+
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:  # already newest-first
+        latest.setdefault(row["symbol"], row)
+
+    scored: list[dict[str, Any]] = []
+    for symbol, row in latest.items():
+        rec = record.get(symbol, {"n": 0, "correct": 0, "errors": []})
+        hit_rate = (rec["correct"] / rec["n"]) if rec["n"] else None
+        # Only trust a hit rate with at least 3 evaluated calls; otherwise treat
+        # reliability as a coin flip so a lucky 1/1 doesn't win the whole thing.
+        reliability = hit_rate if (hit_rate is not None and rec["n"] >= 3) else 0.5
+        direction = (row.get("predicted_direction") or "sideways").lower()
+        exp = row.get("expected_return_pct")
+        conf = (row.get("confidence") or "").lower()
+        conf_weight = _CONFIDENCE_WEIGHT.get(conf, 0.4)
+
+        if isinstance(exp, (int, float)):
+            base = float(exp)
+        elif direction == "up":
+            base = 1.5
+        elif direction == "down":
+            base = -4.0
+        else:
+            base = 0.0
+        score = base * conf_weight * (0.4 + 0.6 * reliability)
+
+        scored.append({
+            "symbol": symbol,
+            "name": row.get("name") or symbol,
+            "direction": direction,
+            "expected_return_pct": exp if isinstance(exp, (int, float)) else None,
+            "confidence": row.get("confidence"),
+            "horizon_days": row.get("horizon_days"),
+            "forecast_at": (row.get("created_at") or "")[:10],
+            "checks": rec["n"],
+            "accuracy_pct": (hit_rate * 100) if hit_rate is not None else None,
+            "avg_error_pct": statistics.fmean(rec["errors"]) if rec["errors"] else None,
+            "_score": score,
+        })
+
+    scored.sort(key=lambda item: item["_score"], reverse=True)
+    up_picks = [item for item in scored if item["direction"] == "up" and item["_score"] > 0]
+
+    if up_picks:
+        pick = up_picks[0]
+        note = "Model-driven, not financial advice. The track record here is still thin — treat this as a starting point, not a green light."
+    else:
+        pick = scored[0]
+        note = "None of the current forecasts point clearly up, so nothing here looks like a strong buy right now. Shown below is just the sturdiest of a flat set."
+
+    runner_up = next((item for item in scored if item["symbol"] != pick["symbol"]), None)
+
+    def phrase(item: dict[str, Any]) -> str:
+        bits: list[str] = []
+        if item["expected_return_pct"] is not None:
+            horizon = f"{item['horizon_days']}d" if item["horizon_days"] else "the horizon"
+            bits.append(f"model sees {item['expected_return_pct']:+.1f}% over {horizon}")
+        else:
+            bits.append(f"forecast is {item['direction']}")
+        if item["confidence"]:
+            bits.append(f"{item['confidence']} confidence")
+        if item["accuracy_pct"] is not None:
+            unit = "check" if item["checks"] == 1 else "checks"
+            bits.append(f"right {item['accuracy_pct']:.0f}% on {item['symbol']} ({item['checks']} {unit})")
+        else:
+            bits.append(f"no graded history on {item['symbol']} yet")
+        return " · ".join(bits)
+
+    pick["reason"] = phrase(pick)
+    if runner_up:
+        runner_up["reason"] = phrase(runner_up)
+
+    for item in (pick, runner_up):
+        if item is not None:
+            item.pop("_score", None)
+
+    return {
+        "as_of": dt.datetime.now().isoformat(timespec="seconds"),
+        "pick": pick,
+        "runner_up": runner_up,
+        "note": note,
+    }
+
+
 def google_news(query: str, limit: int = 10) -> list[dict[str, str]]:
     search = urllib.parse.quote(f"{query} stock market")
     url = f"https://news.google.com/rss/search?q={search}&hl=en-US&gl=US&ceid=US:en"
@@ -1509,6 +1625,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/predictions":
             self.send_json(200, prediction_accuracy_summary())
+            return
+        if parsed.path == "/api/recommendation":
+            self.send_json(200, buy_recommendation())
             return
         if parsed.path.startswith("/static/"):
             rel = parsed.path.removeprefix("/static/")

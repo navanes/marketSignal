@@ -387,6 +387,58 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.buy-pick {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--brand);
+  border-radius: 10px;
+  background: #f6faf8;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.buy-pick-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.buy-pick-asof {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.buy-pick-symbol {
+  margin: 6px 0 4px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.buy-pick-symbol[data-dir="up"] { color: var(--brand-dark); }
+.buy-pick-symbol[data-dir="down"] { color: var(--red); }
+
+.buy-pick-reason {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.buy-pick-runner {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.buy-pick-runner:empty { display: none; }
+
+.buy-pick-note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .prediction-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);

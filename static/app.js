@@ -46,6 +46,11 @@ const probabilityValue = document.querySelector("#probabilityValue");
 const probabilityState = document.querySelector("#probabilityState");
 const scenarioReport = document.querySelector("#scenarioReport");
 const refreshPredictions = document.querySelector("#refreshPredictions");
+const buyPickAsOf = document.querySelector("#buyPickAsOf");
+const buyPickSymbol = document.querySelector("#buyPickSymbol");
+const buyPickReason = document.querySelector("#buyPickReason");
+const buyPickRunner = document.querySelector("#buyPickRunner");
+const buyPickNote = document.querySelector("#buyPickNote");
 const predictionTotal = document.querySelector("#predictionTotal");
 const predictionAccuracy = document.querySelector("#predictionAccuracy");
 const predictionError = document.querySelector("#predictionError");
@@ -984,6 +989,41 @@ async function loadPredictionTracker() {
     renderPredictionTracker(data);
   } catch {
     drawEmptyPredictionChart("Could not load prediction history");
+  }
+  loadBuyRecommendation();
+}
+
+function renderBuyRecommendation(data = {}) {
+  const pick = data.pick;
+  buyPickAsOf.textContent = data.as_of ? `as of ${String(data.as_of).replace("T", " ")}` : "";
+  if (!pick) {
+    buyPickSymbol.textContent = data.note || "Not enough prediction history yet.";
+    buyPickReason.textContent = "";
+    buyPickRunner.textContent = "";
+    buyPickNote.textContent = "";
+    return;
+  }
+  const arrow = pick.direction === "up" ? "▲" : pick.direction === "down" ? "▼" : "▬";
+  buyPickSymbol.textContent = `${arrow} ${pick.symbol} — ${pick.name || pick.symbol}`;
+  buyPickSymbol.dataset.dir = pick.direction || "";
+  buyPickReason.textContent = pick.reason || "";
+  buyPickRunner.textContent = data.runner_up
+    ? `Runner-up: ${data.runner_up.symbol} — ${data.runner_up.reason}`
+    : "";
+  buyPickNote.textContent = data.note || "";
+}
+
+async function loadBuyRecommendation() {
+  try {
+    const response = await fetch("/api/recommendation");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load recommendation.");
+    renderBuyRecommendation(data);
+  } catch {
+    buyPickSymbol.textContent = "Could not load the recommendation.";
+    buyPickReason.textContent = "";
+    buyPickRunner.textContent = "";
+    buyPickNote.textContent = "";
   }
 }
 
