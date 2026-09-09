@@ -30,6 +30,9 @@ FEATURE_NAMES: list[str] = [
     "dist_to_resistance",
     "dist_to_support",
     "horizon_frac",
+    "macro_risk_on",
+    "macro_spx_vs_200d",
+    "macro_vix",
 ]
 
 MAX_HORIZON_SESSIONS = 22  # ~30 calendar days; used to normalise the horizon feature
@@ -41,10 +44,14 @@ def _pct_change(a: float | None, b: float | None) -> float:
     return (a - b) / b * 100.0
 
 
-def extract_features(window: list[dict[str, Any]], horizon_days: int, analytics: dict[str, Any] | None = None) -> dict[str, float] | None:
+def extract_features(
+    window: list[dict[str, Any]], horizon_days: int,
+    analytics: dict[str, Any] | None = None, macro_row: dict[str, Any] | None = None,
+) -> dict[str, float] | None:
     """window: chronological [{date, close, volume}, ...] up to and including the
     decision bar. analytics: optional pre-computed app.analytics_summary(window,...)
-    to avoid recomputing. Returns None if there isn't enough history."""
+    to avoid recomputing. macro_row: the market-regime state as of the decision
+    bar (see macro.py); neutral if omitted. Returns None if too little history."""
     if len(window) < 70:
         return None
     closes = [row["close"] for row in window]
@@ -74,6 +81,7 @@ def extract_features(window: list[dict[str, Any]], horizon_days: int, analytics:
     support = technical.get("support")
     resistance = technical.get("resistance")
     sessions = app.horizon_sessions(horizon_days)
+    m = macro_row or {}
 
     def back(n: int) -> float:
         return closes[-1 - n] if len(closes) > n else closes[0]
@@ -95,6 +103,9 @@ def extract_features(window: list[dict[str, Any]], horizon_days: int, analytics:
         "dist_to_resistance": _pct_change(resistance, price) if resistance else 0.0,
         "dist_to_support": _pct_change(price, support) if support else 0.0,
         "horizon_frac": sessions / MAX_HORIZON_SESSIONS,
+        "macro_risk_on": float(m.get("risk_on") or 0.0),
+        "macro_spx_vs_200d": (m.get("spx_vs_200d_pct") or 0.0) / 10.0,
+        "macro_vix": ((m.get("vix_level") or 18.0) - 18.0) / 12.0,
     }
 
 

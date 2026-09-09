@@ -769,8 +769,9 @@ def learned_forecast(
     if ACTIVE_MODEL not in ("learned", model.get("model")):
         return None
     import features as _F  # local import avoids a features<->app import cycle
+    import macro as _macro
 
-    feats = _F.extract_features(series, horizon_days, analytics)
+    feats = _F.extract_features(series, horizon_days, analytics, _macro.current())
     price = quote.get("price")
     if feats is None or not isinstance(price, (int, float)):
         return None
@@ -821,6 +822,51 @@ def learned_forecast(
         "horizon_days": horizon_days,
         "components": components,
     }
+
+
+def apply_overlays(forecast: dict[str, Any], symbol: str, sentiment: dict[str, Any], quote: dict[str, Any]) -> dict[str, Any]:
+    """Layer the live-only signals (fundamentals + news) on top of the trained
+    model's call as a small, bounded, fully itemised adjustment. The model's
+    own number is kept as `model_expected_return_pct` so we can measure forward
+    whether the overlay actually helps."""
+    try:
+        import fundamentals as _fund
+        ftilt = _fund.fundamental_tilt(_fund.fundamentals(symbol))
+    except Exception:
+        ftilt = {"tilt_pct": 0.0, "reason": ""}
+    ntilt = news_tilt(sentiment)
+
+    raw = forecast.get("expected_return_pct")
+    if not isinstance(raw, (int, float)):
+        return forecast
+    total_tilt = max(-3.0, min(3.0, (ftilt["tilt_pct"] or 0.0) + (ntilt["tilt_pct"] or 0.0)))
+    adjusted = raw + total_tilt
+
+    band = forecast.get("band_pct") or 1.0
+    direction = "up" if adjusted >= band else "down" if adjusted <= -band else "sideways"
+    strength = abs(adjusted) / band if band else 0.0
+    confidence = (
+        "high" if strength >= 2.0 else "medium-high" if strength >= 1.4
+        else "medium" if strength >= 1.0 else "low-medium" if strength >= 0.6 else "low"
+    )
+    price = quote.get("price")
+    overlay_bits = [b for b in (ftilt["reason"], ntilt["reason"]) if b]
+
+    forecast.update({
+        "model_expected_return_pct": round(raw, 3),
+        "model_direction": forecast.get("direction"),
+        "expected_return_pct": round(adjusted, 3),
+        "direction": direction,
+        "confidence": confidence,
+        "target_price": round(price * (1 + adjusted / 100), 4) if isinstance(price, (int, float)) else forecast.get("target_price"),
+        "overlays": {
+            "fundamental_tilt_pct": ftilt["tilt_pct"],
+            "news_tilt_pct": ntilt["tilt_pct"],
+            "total_tilt_pct": round(total_tilt, 2),
+            "notes": overlay_bits,
+        },
+    })
+    return forecast
 
 
 def _gbt_predict(model: dict[str, Any], x: list[float]) -> float:
@@ -941,6 +987,8 @@ def init_prediction_db() -> None:
             ("horizon_days", "INTEGER"),
             ("band_pct", "REAL"),
             ("expected_return_pct", "REAL"),
+            ("model_expected_return_pct", "REAL"),
+            ("overlay_tilt_pct", "REAL"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {column} {decl}")
@@ -959,6 +1007,8 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
     start_price = float(quote["price"])
     horizon_days = int(data.get("horizon_days") or analytics.get("horizon_days") or DEFAULT_HORIZON_DAYS)
     forecast_model = data.get("forecast_model") or {}
+    model_expected = None
+    overlay_tilt = None
 
     if isinstance(forecast_model.get("target_price"), (int, float)):
         target = float(forecast_model["target_price"])
@@ -967,6 +1017,8 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
         expected_return_pct = float(forecast_model.get("expected_return_pct") or 0.0)
         model = forecast_model.get("model") or "blend_v1"
         confidence = forecast_model.get("confidence") or data.get("signal", {}).get("confidence")
+        model_expected = forecast_model.get("model_expected_return_pct")
+        overlay_tilt = (forecast_model.get("overlays") or {}).get("total_tilt_pct")
     elif forecast and isinstance(forecast[-1].get("close"), (int, float)):
         target = float(forecast[-1]["close"])
         band_pct = 1.0
@@ -986,8 +1038,9 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
             INSERT INTO predictions (
                 created_at, due_date, query, symbol, name, horizon_sessions, start_price, target_price,
                 predicted_direction, confidence, action, score, period, sentiment, trend, rsi14,
-                macd_histogram, support, resistance, model, horizon_days, band_pct, expected_return_pct
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                macd_histogram, support, resistance, model, horizon_days, band_pct, expected_return_pct,
+                model_expected_return_pct, overlay_tilt_pct
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["generated_at"],
@@ -1013,6 +1066,8 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
                 horizon_days,
                 band_pct,
                 expected_return_pct,
+                model_expected,
+                overlay_tilt,
             ),
         )
         prediction_id = cursor.lastrowid
@@ -1360,22 +1415,76 @@ NEGATIVE_TERMS = {
 }
 
 
+_EVENT_TAGS = {
+    "earnings": ("earnings", "quarterly results", "q1", "q2", "q3", "q4", "eps"),
+    "guidance": ("guidance", "outlook", "forecast", "raises", "cuts forecast", "warns"),
+    "rating": ("upgrade", "downgrade", "initiates", "price target", "reiterates"),
+    "legal": ("lawsuit", "probe", "investigation", "sec ", "settlement", "fine"),
+    "deal": ("acquire", "acquisition", "merger", "buyout", "stake", "partnership"),
+}
+
+
 def news_sentiment(news: list[dict[str, str]]) -> dict[str, Any]:
-    scored = []
-    total = 0
+    """A recency-weighted, de-duplicated headline read. score is -1..1;
+    material_event flags a rating/earnings/legal/deal item in the last ~3 days."""
+    now = dt.datetime.now(dt.timezone.utc)
+    seen: set[str] = set()
+    weighted_sum = weight_sum = 0.0
+    events: set[str] = set()
+    material_event = False
+    scored: list[dict[str, Any]] = []
+
     for article in news:
-        words = set(re.findall(r"[a-z]+", article["title"].lower()))
-        pos = len(words & POSITIVE_TERMS)
-        neg = len(words & NEGATIVE_TERMS)
-        score = pos - neg
-        total += score
-        scored.append({**article, "score": score})
-    label = "neutral"
-    if total >= 2:
-        label = "positive"
-    elif total <= -2:
-        label = "negative"
-    return {"score": total, "label": label, "articles": scored}
+        title = article.get("title") or ""
+        key = re.sub(r"[^a-z0-9 ]", "", title.lower())[:60]
+        if not key or key in seen:
+            continue
+        seen.add(key)
+
+        words = set(re.findall(r"[a-z]+", title.lower()))
+        raw = len(words & POSITIVE_TERMS) - len(words & NEGATIVE_TERMS)
+
+        age_days = 99.0
+        try:
+            age_days = max(0.0, (now - dt.datetime.fromisoformat(article["published"])).total_seconds() / 86400)
+        except (TypeError, ValueError, KeyError):
+            pass
+        recency = 1.0 if age_days <= 2 else 0.6 if age_days <= 5 else 0.3 if age_days <= 10 else 0.1
+
+        tags = [name for name, kws in _EVENT_TAGS.items() if any(k in title.lower() for k in kws)]
+        events.update(tags)
+        if tags and set(tags) & {"rating", "earnings", "legal", "deal"} and age_days <= 3:
+            material_event = True
+
+        weighted_sum += raw * recency
+        weight_sum += recency
+        scored.append({**article, "score": raw, "age_days": round(age_days, 1), "tags": tags})
+
+    norm = 0.0
+    if weight_sum:
+        norm = max(-1.0, min(1.0, (weighted_sum / weight_sum) / 2.0))
+    label = "positive" if norm >= 0.25 else "negative" if norm <= -0.25 else "neutral"
+    return {
+        "score": round(norm, 3),
+        "label": label,
+        "events": sorted(events),
+        "material_event": material_event,
+        "articles": scored,
+    }
+
+
+def news_tilt(sentiment: dict[str, Any]) -> dict[str, Any]:
+    """Bounded nudge (+/-1.5 percentage points) from live headlines."""
+    score = sentiment.get("score") or 0.0
+    tilt = round(max(-1.5, min(1.5, score * 1.5)), 2)
+    reason = ""
+    if abs(tilt) >= 0.3:
+        reason = f"headlines {sentiment.get('label')}"
+        if sentiment.get("events"):
+            reason += f" ({', '.join(sentiment['events'][:2])})"
+    elif sentiment.get("material_event"):
+        reason = "fresh " + ", ".join(sentiment.get("events", [])[:2])
+    return {"tilt_pct": tilt, "reason": reason}
 
 
 def fmt_money(value: float | None, currency: str | None = None) -> str:
@@ -1694,6 +1803,7 @@ def research(query: str, period: str = "6mo", horizon_days: int = DEFAULT_HORIZO
     forecast_model = learned_forecast(series, quote, analytics, horizon_days) or directional_forecast(
         quote, sentiment, analytics
     )
+    forecast_model = apply_overlays(forecast_model, symbol, sentiment, quote)
     decision_flow(quote, sentiment, signal, analytics)
     report = ai_report(query, quote, sentiment, signal, analytics) or deterministic_report(
         query, quote, sentiment, signal, analytics

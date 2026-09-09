@@ -1431,6 +1431,14 @@ function renderModelForecast(model, horizonDays) {
     parts.push(`expected ${model.expected_return_pct > 0 ? "+" : ""}${model.expected_return_pct.toFixed(1)}%`);
   }
   if (typeof model.band_pct === "number") parts.push(`flat band ±${model.band_pct.toFixed(1)}%`);
+  const ov = model.overlays;
+  if (ov && typeof model.model_expected_return_pct === "number" && Math.abs(ov.total_tilt_pct || 0) >= 0.05) {
+    const m = model.model_expected_return_pct;
+    parts.push(
+      `model ${m > 0 ? "+" : ""}${m.toFixed(1)}% ${ov.total_tilt_pct > 0 ? "+" : "−"} ${Math.abs(ov.total_tilt_pct).toFixed(1)}% overlay` +
+      (ov.notes && ov.notes.length ? ` (${ov.notes.join("; ")})` : "")
+    );
+  }
   modelMeta.textContent = parts.join(" · ");
   modelComponents.innerHTML = "";
   (model.components || []).slice(0, 5).forEach((component) => {

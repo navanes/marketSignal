@@ -19,6 +19,7 @@ import urllib.error
 
 import app
 import features as F
+import macro
 from universe import SYMBOLS, SCAN_HORIZONS
 
 MODEL_PATH = app.DATA_DIR / "model.json"
@@ -72,6 +73,8 @@ def ridge_predict(model: dict, x: list[float]) -> float:
 def build_rows(symbols: list[str], step: int) -> list[dict]:
     rows: list[dict] = []
     max_sessions = max(app.horizon_sessions(h) for h in SCAN_HORIZONS)
+    print("  building macro-regime history...")
+    macro_bd = macro.build("5y")
     for i, symbol in enumerate(symbols, 1):
         try:
             series = app.price_series(app.yahoo_chart(symbol, "5y"))
@@ -89,7 +92,7 @@ def build_rows(symbols: list[str], step: int) -> list[dict]:
                 if t + sessions >= len(series):
                     continue
                 analytics = app.analytics_summary(window, "1y", horizon)
-                feats = F.extract_features(window, horizon, analytics)
+                feats = F.extract_features(window, horizon, analytics, macro.as_of(macro_bd, window[-1]["date"]))
                 if feats is None:
                     continue
                 start = window[-1]["close"]
