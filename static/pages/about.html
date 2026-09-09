@@ -1,0 +1,33 @@
+<div class="page-wrap prose-page">
+  <header class="page-head">
+    <p class="eyebrow">About</p>
+    <h1>What MarketSignal is</h1>
+    <p class="page-sub">A research instrument, built in the open, that tries to earn trust the slow way — by recording every prediction and being honest about the score.</p>
+  </header>
+
+  <section class="analytics-panel prose-panel">
+    <div class="prose">
+      <h3>The idea</h3>
+      <p>Most market tools tell you what to think and never tell you how often they were right. MarketSignal does the opposite: it makes a specific, dated call for each market it follows, then checks it. The value isn't any single forecast — it's the accumulating, auditable record.</p>
+
+      <h3>What it does each day</h3>
+      <ul>
+        <li>Scans a fixed universe of ~40 liquid markets — large-cap stocks across sectors, the main index ETFs, and the two largest cryptocurrencies.</li>
+        <li>Logs a forecast per market and horizon (10-day and 30-day): direction, expected percentage move, a confidence band, and a due date.</li>
+        <li>Grades every forecast that has come due against the real closing price, and rolls the result into the track record.</li>
+      </ul>
+
+      <h3>How the forecast is made</h3>
+      <p>A learned model — currently a regularised linear regression on the forward return — is fit on the full history of graded outcomes and re-validated walk-forward over five years. It reads price structure and momentum, not tips. Live fundamentals and news then add a small, capped adjustment on top, and both the raw and adjusted calls are stored so the overlay can be judged on its own.</p>
+
+      <h3>Discipline</h3>
+      <p>New model ideas are held to a single test: do they beat the current live model on out-of-sample strategy P&amp;L? If not, they don't ship. So far a gradient-boosted-tree model and a macro-regime feature set have both been built, measured, and set aside for failing that test — which is the point.</p>
+
+      <h3>Data</h3>
+      <p>Prices and fundamentals from Yahoo Finance; headlines from Google News. No paid feeds, no alternative data yet.</p>
+
+      <h3>Important</h3>
+      <p class="disclaimer">MarketSignal is for research and education. It is <strong>not investment advice</strong>, not a recommendation to buy or sell any security, and not a solicitation. Model output can be wrong and frequently is. Past performance — backtested or live — does not predict future results. Markets can and do lose money. Do your own research and consider a licensed advisor before investing.</p>
+    </div>
+  </section>
+</div>

@@ -1849,6 +1849,7 @@ class Handler(BaseHTTPRequestHandler):
             ".html": "text/html; charset=utf-8",
             ".css": "text/css; charset=utf-8",
             ".js": "application/javascript; charset=utf-8",
+            ".svg": "image/svg+xml",
         }
         body = path.read_bytes()
         self.send_response(200)
@@ -1857,22 +1858,53 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_HEAD(self) -> None:
-        parsed = urllib.parse.urlparse(self.path)
-        path = STATIC_DIR / "index.html" if parsed.path == "/" else None
-        if path is None or not path.exists():
+    def serve_page(self, name: str, title: str) -> None:
+        """Assemble a page from the shared layout + its content fragment."""
+        try:
+            layout = (STATIC_DIR / "partials" / "layout.html").read_text()
+            content = (STATIC_DIR / "pages" / f"{name}.html").read_text()
+        except OSError:
             self.send_error(404)
             return
-        body = path.read_bytes()
+        nav = {k: 'class="active" aria-current="page"' if k == name else ""
+               for k in ("home", "research", "model", "about")}
+        html = (
+            layout.replace("{{CONTENT}}", content)
+            .replace("{{TITLE}}", title)
+            .replace("{{PAGE}}", name)
+            .replace("{{NAV_HOME}}", nav["home"])
+            .replace("{{NAV_RESEARCH}}", nav["research"])
+            .replace("{{NAV_MODEL}}", nav["model"])
+            .replace("{{NAV_ABOUT}}", nav["about"])
+        )
+        body = html.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
+        self.wfile.write(body)
+
+    def do_HEAD(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        if (parsed.path.rstrip("/") or "/") not in self.PAGES:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+
+    PAGES = {
+        "/": ("home", "Dashboard"),
+        "/research": ("research", "Research"),
+        "/model": ("model", "Model & track record"),
+        "/about": ("about", "About"),
+    }
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/":
-            self.serve_file(STATIC_DIR / "index.html")
+        page = self.PAGES.get(parsed.path.rstrip("/") or "/")
+        if page:
+            self.serve_page(*page)
             return
         if parsed.path == "/api/predictions":
             self.send_json(200, prediction_accuracy_summary())

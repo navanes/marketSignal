@@ -1,0 +1,73 @@
+<section class="hero">
+  <div class="hero-inner">
+    <img class="hero-logo" src="/static/logo.svg" alt="" width="64" height="64" />
+    <h1>Market<span class="brand-accent">Signal</span></h1>
+    <p class="hero-tag">A market research model that grades its own homework.</p>
+    <p class="hero-sub">
+      Every call is logged with a due date and checked against what actually happened. The model is
+      walk-forward tested over five years before it goes live, and a new version only ships when it
+      beats the one it replaces.
+    </p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="/research">Research a market</a>
+      <a class="btn btn-ghost" href="/model">See the track record</a>
+    </div>
+    <p class="hero-fine">Research only — not financial advice.</p>
+  </div>
+</section>
+
+<div class="page-wrap">
+  <section class="analytics-panel home-pick">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Today's read</p>
+        <h2>If you had to buy one</h2>
+      </div>
+      <button class="ghost" id="refreshPredictions" type="button">Refresh</button>
+    </div>
+
+    <div class="buy-pick" id="buyPick">
+      <div class="buy-pick-head">
+        <span class="eyebrow">Top of the ranking</span>
+        <span class="buy-pick-asof" id="buyPickAsOf"></span>
+      </div>
+      <p class="buy-pick-symbol" id="buyPickSymbol">Loading the latest scan…</p>
+      <p class="buy-pick-reason" id="buyPickReason"></p>
+      <p class="buy-pick-runner" id="buyPickRunner"></p>
+      <ol class="buy-pick-ranked" id="buyPickRanked"></ol>
+      <p class="buy-pick-note" id="buyPickNote"></p>
+    </div>
+
+    <details class="scorecard" id="scorecard">
+      <summary>
+        <span class="eyebrow">Model scorecard — walk-forward backtest</span>
+        <span class="scorecard-headline" id="scorecardHeadline">loading…</span>
+      </summary>
+      <div class="scorecard-body">
+        <div class="scorecard-grid" id="scorecardGrid"></div>
+        <p class="scorecard-line" id="scorecardRegime"></p>
+        <p class="scorecard-line" id="scorecardSymbols"></p>
+        <p class="scorecard-note">Full detail and the live tracker live on the <a href="/model">Model</a> page.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="home-columns">
+    <article class="home-card">
+      <h3>How it works</h3>
+      <ol class="home-steps">
+        <li>Nightly, it scans ~40 liquid markets and logs a forecast for each — direction, expected move, confidence, due date.</li>
+        <li>When a forecast comes due it's graded against the real close. Nothing is hand-waved.</li>
+        <li>A learned model (fit on the accumulated history) makes the call; live fundamentals and news add a small, capped nudge on top.</li>
+        <li>Every change is measured against the previous version on five years of walk-forward history.</li>
+      </ol>
+      <a class="text-link" href="/about">Read the full methodology →</a>
+    </article>
+    <article class="home-card">
+      <h3>Where it stands</h3>
+      <p class="home-card-lead" id="homeStandLead">Loading the current numbers…</p>
+      <ul class="home-facts" id="homeFacts"></ul>
+      <a class="text-link" href="/model">Open the tracker →</a>
+    </article>
+  </section>
+</div>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{TITLE}} · MarketSignal</title>
+    <meta name="description" content="MarketSignal — a self-scoring market research model. Walk-forward tested, learns from its own misses." />
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body data-page="{{PAGE}}">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="site-header-inner">
+        <a class="brand" href="/" aria-label="MarketSignal home">
+          <img src="/static/logo.svg" alt="" width="34" height="34" />
+          <span class="brand-word">Market<span class="brand-accent">Signal</span></span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="/" {{NAV_HOME}}>Dashboard</a>
+          <a href="/research" {{NAV_RESEARCH}}>Research</a>
+          <a href="/model" {{NAV_MODEL}}>Model</a>
+          <a href="/about" {{NAV_ABOUT}}>About</a>
+        </nav>
+        <span class="header-status" id="sourceStatus" title="Live market &amp; news data">● Live data</span>
+      </div>
+    </header>
+
+    <main id="main" class="site-main">
+      {{CONTENT}}
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer-inner">
+        <div class="footer-brand">
+          <img src="/static/logo.svg" alt="" width="28" height="28" />
+          <div>
+            <strong>MarketSignal</strong>
+            <span>A self-scoring market research model.</span>
+          </div>
+        </div>
+        <nav class="footer-nav" aria-label="Footer">
+          <a href="/">Dashboard</a>
+          <a href="/research">Research</a>
+          <a href="/model">Model</a>
+          <a href="/about">About</a>
+        </nav>
+        <p class="footer-fine">
+          Research and modelling only — <strong>not financial advice</strong>. Markets carry risk of loss.
+          Data: Yahoo Finance, Google News. &copy; <span id="footerYear">2026</span> MarketSignal.
+        </p>
+      </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="MarketSignal">
+  <defs>
+    <linearGradient id="ms-g" x1="0" y1="48" x2="48" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0c4c46"/>
+      <stop offset="1" stop-color="#1aa38f"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="46" height="46" rx="11" fill="url(#ms-g)"/>
+  <path d="M9 31 L19 22 L27 27 L39 13" fill="none" stroke="#7ff3d8" stroke-width="3.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="39" cy="13" r="4.4" fill="#7ff3d8"/>
+  <circle cx="39" cy="13" r="7.5" fill="none" stroke="#7ff3d8" stroke-width="1.4" opacity="0.55"/>
+  <path d="M9 38 H39" stroke="#ffffff" stroke-width="1.6" opacity="0.28" stroke-linecap="round"/>
+</svg>

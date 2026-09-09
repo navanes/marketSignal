@@ -351,6 +351,7 @@ function monthName(dateText) {
 
 function drawEmptyChart(message = "Run research to load price history") {
   const canvas = priceChart;
+  if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const ratio = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -366,6 +367,7 @@ function drawEmptyChart(message = "Run research to load price history") {
 
 function drawEmptyPredictionChart(message = "Prediction history will appear here") {
   const canvas = predictionChart;
+  if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const ratio = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -887,6 +889,7 @@ function drawPredictionChart(predictions = []) {
   }
 
   const canvas = predictionChart;
+  if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const ratio = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -943,6 +946,7 @@ function drawPredictionChart(predictions = []) {
 
 function renderPredictionTracker(data = {}) {
   lastPredictionData = data;
+  if (!predictionTotal) return; // tracker table isn't on this page (home)
   const summary = data.summary || {};
   const predictions = data.predictions || [];
   predictionTotal.textContent = summary.total ?? "-";
@@ -999,6 +1003,7 @@ async function loadPredictionTracker() {
 }
 
 function renderBuyRecommendation(data = {}) {
+  if (!buyPickSymbol) return; // pick card isn't on this page
   const pick = data.pick;
   buyPickAsOf.textContent = data.as_of ? `as of ${String(data.as_of).replace("T", " ")}` : "";
   if (!pick) {
@@ -1047,6 +1052,7 @@ async function loadBuyRecommendation() {
 }
 
 function renderScorecard(data = {}) {
+  if (!scorecardHeadline) return; // scorecard isn't on this page
   if (!data || !data.sample) {
     scorecardHeadline.textContent = data.headline || "not run yet";
     scorecardGrid.innerHTML = "";
@@ -1224,14 +1230,14 @@ async function runResearch(query, period = currentPeriod) {
   }
 }
 
-form.addEventListener("submit", async (event) => {
+form?.addEventListener("submit", async (event) => {
   event.preventDefault();
   closeMarketMenu();
   await runResearch(queryInput.value.trim());
 });
 
-queryInput.addEventListener("input", openMarketMenu);
-queryInput.addEventListener("keydown", (event) => {
+queryInput?.addEventListener("input", openMarketMenu);
+queryInput?.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeMarketMenu();
     return;
@@ -1243,7 +1249,7 @@ queryInput.addEventListener("keydown", (event) => {
   }
 });
 
-marketToggle.addEventListener("click", () => {
+marketToggle?.addEventListener("click", () => {
   if (marketOptions.classList.contains("open")) closeMarketMenu();
   else {
     queryInput.focus();
@@ -1251,7 +1257,7 @@ marketToggle.addEventListener("click", () => {
   }
 });
 
-marketOptions.addEventListener("keydown", (event) => {
+marketOptions?.addEventListener("keydown", (event) => {
   const options = Array.from(marketOptions.querySelectorAll(".market-option"));
   const index = options.indexOf(document.activeElement);
   if (event.key === "Escape") {
@@ -1273,7 +1279,7 @@ document.addEventListener("click", (event) => {
   if (!marketCombo.contains(event.target)) closeMarketMenu();
 });
 
-rangeFilter.addEventListener("click", async (event) => {
+rangeFilter?.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-period]");
   if (!button) return;
   const query = queryInput.value.trim();
@@ -1281,7 +1287,7 @@ rangeFilter.addEventListener("click", async (event) => {
   if (query) await runResearch(query, button.dataset.period);
 });
 
-overlayFilter.addEventListener("click", (event) => {
+overlayFilter?.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-overlay]");
   if (!button) return;
   const overlay = button.dataset.overlay;
@@ -1291,25 +1297,25 @@ overlayFilter.addEventListener("click", (event) => {
   if (lastAnalytics) drawPriceChart(lastAnalytics);
 });
 
-zoomIn.addEventListener("click", () => {
+zoomIn?.addEventListener("click", () => {
   setChartZoom(chartZoom * 1.35);
   if (lastAnalytics) drawPriceChart(lastAnalytics);
 });
 
-zoomOut.addEventListener("click", () => {
+zoomOut?.addEventListener("click", () => {
   setChartZoom(chartZoom / 1.35);
   if (lastAnalytics) drawPriceChart(lastAnalytics);
 });
 
-panLeft.addEventListener("click", () => {
+panLeft?.addEventListener("click", () => {
   panByPage(-1);
 });
 
-panRight.addEventListener("click", () => {
+panRight?.addEventListener("click", () => {
   panByPage(1);
 });
 
-chartPanSlider.addEventListener("input", () => {
+chartPanSlider?.addEventListener("input", () => {
   if (!lastAnalytics?.chart?.length) return;
   const maxStart = Number(chartPanSlider.max || 0);
   const nextStart = Number(chartPanSlider.value || 0);
@@ -1318,14 +1324,14 @@ chartPanSlider.addEventListener("input", () => {
   drawPriceChart(lastAnalytics);
 });
 
-zoomReset.addEventListener("click", () => {
+zoomReset?.addEventListener("click", () => {
   chartZoom = 1;
   chartPanStart = null;
   updateZoomLabel();
   if (lastAnalytics) drawPriceChart(lastAnalytics);
 });
 
-priceChart.addEventListener(
+priceChart?.addEventListener(
   "wheel",
   (event) => {
     if (!lastAnalytics) return;
@@ -1344,7 +1350,7 @@ priceChart.addEventListener(
   { passive: false }
 );
 
-priceChart.addEventListener("pointerdown", (event) => {
+priceChart?.addEventListener("pointerdown", (event) => {
   if (!lastAnalytics?.chart?.length) return;
   event.preventDefault();
   priceChart.setPointerCapture(event.pointerId);
@@ -1359,7 +1365,7 @@ priceChart.addEventListener("pointerdown", (event) => {
   priceChart.classList.add("dragging");
 });
 
-priceChart.addEventListener("pointermove", (event) => {
+priceChart?.addEventListener("pointermove", (event) => {
   if (!dragState || dragState.pointerId !== event.pointerId || !lastAnalytics?.chart?.length) return;
   event.preventDefault();
   const deltaX = event.clientX - dragState.startX;
@@ -1375,12 +1381,12 @@ function endChartDrag(event) {
   priceChart.classList.remove("dragging");
 }
 
-priceChart.addEventListener("pointerup", endChartDrag);
-priceChart.addEventListener("pointercancel", endChartDrag);
+priceChart?.addEventListener("pointerup", endChartDrag);
+priceChart?.addEventListener("pointercancel", endChartDrag);
 
-refreshPredictions.addEventListener("click", loadPredictionTracker);
+refreshPredictions?.addEventListener("click", loadPredictionTracker);
 
-copyReport.addEventListener("click", async () => {
+copyReport?.addEventListener("click", async () => {
   if (!lastReport) return;
   await navigator.clipboard.writeText(lastReport);
   copyReport.innerHTML = '<span aria-hidden="true">OK</span> Copied';
@@ -1396,14 +1402,14 @@ function setActiveHorizon(days) {
   });
 }
 
-horizonFilter.addEventListener("click", (event) => {
+horizonFilter?.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-horizon]");
   if (!button) return;
   horizonCustom.value = "";
   setActiveHorizon(Number(button.dataset.horizon));
 });
 
-horizonCustom.addEventListener("change", () => {
+horizonCustom?.addEventListener("change", () => {
   if (!horizonCustom.value) return;
   const days = Math.round((new Date(horizonCustom.value) - new Date()) / 86400000);
   if (days >= 1 && days <= 365) {
@@ -1414,7 +1420,7 @@ horizonCustom.addEventListener("change", () => {
   }
 });
 
-clearRecents.addEventListener("click", () => {
+clearRecents?.addEventListener("click", () => {
   if (confirm("Clear all recent searches?")) clearSavedMarkets();
 });
 
@@ -1449,17 +1455,64 @@ function renderModelForecast(model, horizonDays) {
   });
 }
 
-renderMarketOptions();
-renderRecentSearches();
-setActivePeriod(currentPeriod);
-setActiveHorizon(currentHorizonDays);
-updateZoomLabel();
-drawEmptyChart();
-drawEmptyPredictionChart();
-loadPredictionTracker();
+const PAGE = document.body?.dataset.page || "";
+
+const footerYear = document.querySelector("#footerYear");
+if (footerYear) footerYear.textContent = String(new Date().getFullYear());
+
+if (PAGE === "research") {
+  renderMarketOptions();
+  renderRecentSearches();
+  setActivePeriod(currentPeriod);
+  setActiveHorizon(currentHorizonDays);
+  updateZoomLabel();
+  drawEmptyChart();
+}
+
+if (document.querySelector("#predictionChart")) {
+  drawEmptyPredictionChart();
+}
+
+if (PAGE === "home" || PAGE === "model") {
+  loadPredictionTracker();
+}
+
 window.addEventListener("resize", () => {
-  if (lastAnalytics) drawPriceChart(lastAnalytics);
-  else drawEmptyChart();
-  if (lastPredictionData) drawPredictionChart(lastPredictionData.predictions || []);
-  else drawEmptyPredictionChart();
+  if (typeof lastAnalytics !== "undefined" && lastAnalytics) drawPriceChart(lastAnalytics);
+  else if (document.querySelector("#priceChart")) drawEmptyChart();
+  if (typeof lastPredictionData !== "undefined" && lastPredictionData) {
+    drawPredictionChart(lastPredictionData.predictions || []);
+  } else if (document.querySelector("#predictionChart")) {
+    drawEmptyPredictionChart();
+  }
 });
+
+/* Home page: a few headline numbers pulled from the same feeds. */
+async function renderHomeFacts() {
+  const lead = document.querySelector("#homeStandLead");
+  const facts = document.querySelector("#homeFacts");
+  if (!lead || !facts) return;
+  try {
+    const [scRes, recRes] = await Promise.all([fetch("/api/scorecard"), fetch("/api/recommendation")]);
+    const sc = await scRes.json();
+    const rec = await recRes.json();
+    const learned = sc.learned && sc.learned.walkforward ? sc.learned.walkforward : null;
+    const rows = [];
+    if (learned) {
+      lead.textContent = `Live model, walk-forward tested: ${formatPct(learned.hit_rate_pct)} directional hit rate, ${
+        learned.mean_pnl_pct >= 0 ? "+" : ""
+      }${learned.mean_pnl_pct}% average per call.`;
+      rows.push(["Model", sc.learned.model || "learned"]);
+      rows.push(["Walk-forward hit rate", formatPct(learned.hit_rate_pct)]);
+      rows.push(["Avg P&L / call", `${learned.mean_pnl_pct >= 0 ? "+" : ""}${learned.mean_pnl_pct}%`]);
+    } else {
+      lead.textContent = "Backtest scorecard is still building.";
+    }
+    if (sc.sample) rows.push(["Backtest sample", `${Number(sc.sample).toLocaleString()} calls`]);
+    if (rec && rec.pick) rows.push(["Today's top pick", rec.pick.symbol]);
+    facts.innerHTML = rows.map(([k, v]) => `<li><span>${k}</span><span>${v}</span></li>`).join("");
+  } catch {
+    lead.textContent = "Couldn't load the current numbers.";
+  }
+}
+if (PAGE === "home") renderHomeFacts();

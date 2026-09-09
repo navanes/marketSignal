@@ -1,0 +1,77 @@
+<div class="page-wrap">
+  <header class="page-head">
+    <p class="eyebrow">Model</p>
+    <h1>Track record &amp; how it's judged</h1>
+    <p class="page-sub">Two scoreboards: the <strong>walk-forward backtest</strong> (five years of history the model never trained on) and the <strong>live tracker</strong> (real forecasts logged nightly, graded as they come due).</p>
+  </header>
+
+  <section class="analytics-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Backtest</p>
+        <h2>Walk-forward scorecard</h2>
+      </div>
+    </div>
+    <details class="scorecard" id="scorecard" open>
+      <summary>
+        <span class="eyebrow">Walk-forward backtest</span>
+        <span class="scorecard-headline" id="scorecardHeadline">loading…</span>
+      </summary>
+      <div class="scorecard-body">
+        <div class="scorecard-grid" id="scorecardGrid"></div>
+        <p class="scorecard-line" id="scorecardRegime"></p>
+        <p class="scorecard-line" id="scorecardSymbols"></p>
+        <p class="scorecard-note">3-way direction guessing is ~33%. Every model change is re-run on this same history and only ships if it beats the incumbent.</p>
+      </div>
+    </details>
+  </section>
+
+  <section class="analytics-panel">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Live</p>
+        <h2>Prediction tracker</h2>
+      </div>
+      <button class="ghost" id="refreshPredictions" type="button">Refresh</button>
+    </div>
+    <div class="prediction-grid">
+      <article class="stat-row"><span>Total predictions</span><strong id="predictionTotal">-</strong></article>
+      <article class="stat-row"><span>Direction accuracy</span><strong id="predictionAccuracy">-</strong></article>
+      <article class="stat-row"><span>Average target error</span><strong id="predictionError">-</strong></article>
+      <article class="stat-row"><span>Pending checks</span><strong id="predictionPending">-</strong></article>
+    </div>
+    <div class="prediction-layout">
+      <div class="chart-box compact-chart">
+        <canvas id="predictionChart" width="960" height="280"></canvas>
+      </div>
+      <div class="prediction-side">
+        <h2>Accuracy by market</h2>
+        <div id="symbolAccuracy" class="accuracy-list"><p class="empty">No evaluated predictions yet.</p></div>
+      </div>
+    </div>
+    <div class="prediction-table-wrap">
+      <table class="prediction-table">
+        <thead>
+          <tr><th>Market</th><th>Prediction</th><th>Horizon</th><th>Target</th><th>Due</th><th>Actual</th><th>Status</th></tr>
+        </thead>
+        <tbody id="predictionRows">
+          <tr><td colspan="7">Predictions will appear after the next scan.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="analytics-panel prose-panel">
+    <div class="panel-header"><div><p class="eyebrow">Method</p><h2>How the model is built</h2></div></div>
+    <div class="prose">
+      <h3>The forecast</h3>
+      <p>A learned regression model estimates the forward return for a chosen horizon from ~16 price-derived features — momentum, moving-average structure, RSI, MACD, range position, realised volatility, distance to support/resistance, and a historical-analog probability. Direction (up / down / sideways) comes from comparing that estimate to a volatility-scaled "flat" band, so a call is only made when the expected move is bigger than the noise.</p>
+      <h3>The overlay</h3>
+      <p>On top of the model's number, two live-only signals add a small bounded nudge: <strong>fundamentals</strong> (analyst target upside, recommendation trend, earnings-estimate revisions, growth) and <strong>news</strong> (de-duplicated, recency-weighted headline tone with event tags). The total tilt is capped at ±3 percentage points, and the model's raw call is logged alongside the adjusted one so we can measure whether the overlay actually helps.</p>
+      <h3>Champion / challenger</h3>
+      <p>Any new model — different features, a different algorithm — is trained walk-forward and scored by a simple +1 / −1 / 0 strategy P&amp;L (staying flat scores zero, so it can't win by refusing to commit). It only replaces the live model if it clearly beats it out-of-sample. A gradient-boosted-tree challenger and a macro-regime feature set have both been tried and rejected under this rule.</p>
+      <h3>Honesty notes</h3>
+      <p>The backtest covers one broadly bullish regime and ignores trading costs. "High confidence" from earlier model versions was poorly calibrated. Live forward-testing is what settles it, and that record is still young.</p>
+    </div>
+  </section>
+</div>
