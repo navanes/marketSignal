@@ -10,3 +10,6 @@ data/predictions.sqlite3
 data/backtest.sqlite3
 logs/
 data/model_rejected.json
+.env
+.telegram_bot.lock
+data/.telegram_bot_state.json

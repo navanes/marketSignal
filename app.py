@@ -82,6 +82,8 @@ def normalize_symbol(query: str) -> str:
         "OIL": "CL=F",
         "BITCOIN": "BTC-USD",
         "BTC": "BTC-USD",
+        "ETHEREUM": "ETH-USD",
+        "ETH": "ETH-USD",
     }
     return aliases.get(symbol, symbol)
 
