@@ -40,7 +40,8 @@ API_BASE = "https://api.telegram.org/bot{token}/{method}"
 
 HELP_TEXT = (
     "Ask me about any stock, ETF, index, or crypto — just type a ticker or name, "
-    "like AAPL, tesla, or bitcoin.\n\n"
+    "like AAPL, tesla, or bitcoin. Full sentences work too, like "
+    "\"should I buy bitcoin?\" or \"what's hot right now?\"\n\n"
     "Or tap /menu to pick one from the watch list — and if it's not there, "
     "just type your own.\n\n"
     "Commands:\n"
@@ -278,20 +279,53 @@ def format_pick_reply() -> str:
     rec = app.buy_recommendation()
     pick = rec.get("pick")
     if not pick:
-        return rec.get("note") or "No pick available yet."
+        return rec.get("note") or "No pick available yet — the watch list hasn't graded enough calls."
+
+    checks = pick.get("checks", 0) or 0
+    correct = round(checks * (pick.get("accuracy_pct") or 0) / 100)
+    chance_pct, chance_basis = estimate_chance_right(pick["symbol"], checks, correct)
+
     lines = [
-        f"Top pick right now: {pick['symbol']} — {pick.get('name', pick['symbol'])}",
-        f"Model sees {fmt_pct(pick.get('expected_return_pct'))} over {pick.get('horizon_days', 30)}d, "
-        f"confidence {pick.get('confidence', 'n/a')}",
+        f"Out of everything I watch, {pick['symbol']} ({pick.get('name', pick['symbol'])}) looks hottest right now.",
+        f"My take: BUY. Model sees it moving about {fmt_pct(pick.get('expected_return_pct'))} over "
+        f"{pick.get('horizon_days', 30)} days, confidence {pick.get('confidence', 'n/a')}.",
+        f"Chance this call is right: about {chance_pct}% (risk of being wrong: about {100 - chance_pct}%), "
+        f"from {chance_basis}.",
     ]
-    if pick.get("accuracy_pct") is not None:
-        lines.append(f"Hit rate on this symbol so far: {round(pick['accuracy_pct'])}% ({pick.get('checks', 0)} checks)")
     runner = rec.get("runner_up")
     if runner:
-        lines.append(f"Runner-up: {runner['symbol']} ({fmt_pct(runner.get('expected_return_pct'))})")
-    lines.append(live_accuracy_line())
-    lines.append("Research only, not financial advice.")
+        lines.append(f"Runner-up: {runner['symbol']} ({fmt_pct(runner.get('expected_return_pct'))} expected).")
+    lines.append("Not a promise, just the model's best read — treat this as one opinion, not a sure thing.")
     return "\n".join(lines)
+
+
+_RECOMMEND_INTENT = re.compile(
+    r"\b(hot|hottest|recommend|suggest|best|top pick|what should i (buy|invest|get)|"
+    r"which (one|market|stock|coin|crypto)|what('?s| is) good|any (tips|ideas|advice))\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_recommend_request(text: str) -> bool:
+    return bool(_RECOMMEND_INTENT.search(text))
+
+
+_EXTRA_ALIASES = {"bitcoin": "BTC-USD", "btc": "BTC-USD", "ethereum": "ETH-USD", "eth": "ETH-USD"}
+_NAME_LOOKUP = [(symbol, label) for symbol, label, _bucket in UNIVERSE]
+
+
+def extract_known_symbol(text: str) -> str | None:
+    """Pull a watch-list ticker/name out of a full sentence, e.g. 'should I
+    buy tesla right now?' -> 'TSLA'. Checked before falling back to the
+    recommend-intent check or treating the whole message as a raw ticker."""
+    low = text.lower()
+    for symbol, label in _NAME_LOOKUP:
+        if re.search(rf"\b{re.escape(label.lower())}\b", low) or re.search(rf"\b{re.escape(symbol.lower())}\b", low):
+            return symbol
+    for alias, symbol in _EXTRA_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", low):
+            return symbol
+    return None
 
 
 def format_track_reply() -> str:
@@ -332,7 +366,13 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
         else:
             query = re.sub(r"^/ask\s+", "", query, flags=re.IGNORECASE)
             query = re.sub(r"^/+", "", query)  # e.g. "/ETH" typed as if it were a command
-            send_message(token, chat_id, format_research_reply(query))
+            known = extract_known_symbol(query)
+            if known:
+                send_message(token, chat_id, format_research_reply(known))
+            elif looks_like_recommend_request(query):
+                send_message(token, chat_id, format_pick_reply())
+            else:
+                send_message(token, chat_id, format_research_reply(query))
     except ValueError as exc:
         send_message(token, chat_id, f"Couldn't read that: {exc}")
     except urllib.error.URLError:
