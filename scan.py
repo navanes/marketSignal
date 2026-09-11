@@ -17,6 +17,7 @@ import sys
 import time
 
 import app
+import daily_summary
 from universe import SYMBOLS, SCAN_HORIZONS
 
 
@@ -72,6 +73,12 @@ def main() -> int:
         f"logged {logged}, skipped {skipped} (already today), failed {failed}, "
         f"graded {newly_graded} due predictions  [{mins:.1f} min]"
     )
+
+    try:
+        daily_summary.write_scan_summary(logged, skipped, failed, newly_graded)
+    except Exception as exc:
+        print(f"daily_summary failed: {exc}")
+
     return 0
 
 

@@ -4,7 +4,8 @@
     "notes": [
       "Checked how the model is doing so far.",
       "It's right about 1 out of 3 times \u2014 still early, needs more days to be sure.",
-      "Added a new spot on this page so I can write these little updates for you every day."
+      "Added a new spot on this page so I can write these little updates for you every day.",
+      "Hooked the nightly scan up to write this report by itself from now on — it'll show up here every day, weekends too, even if I'm not around."
     ]
   }
 ]
