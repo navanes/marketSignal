@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 import app
+from universe import UNIVERSE
 
 ROOT = Path(__file__).parent
 ENV_PATH = ROOT / ".env"
@@ -40,12 +41,33 @@ API_BASE = "https://api.telegram.org/bot{token}/{method}"
 HELP_TEXT = (
     "Ask me about any stock, ETF, index, or crypto — just type a ticker or name, "
     "like AAPL, tesla, or bitcoin.\n\n"
+    "Or tap /menu to pick one from the watch list — and if it's not there, "
+    "just type your own.\n\n"
     "Commands:\n"
+    "/menu — browse the watch list by category\n"
     "/pick — today's top-ranked market across the whole watch list\n"
     "/track — how often the model has actually been right so far\n"
     "/help — this message\n\n"
     "Research only, not financial advice — this is one input, not a green light."
 )
+
+BUCKET_LABELS = {
+    "tech": "📱 Tech",
+    "semis": "🔌 Chips",
+    "autos": "🚗 Autos",
+    "software": "💻 Software",
+    "financials": "🏦 Financials",
+    "healthcare": "🩺 Healthcare",
+    "consumer": "🛒 Consumer",
+    "energy": "🛢️ Energy",
+    "industrials": "🏗️ Industrials",
+    "etf": "📊 Indexes",
+    "crypto": "₿ Crypto",
+}
+BUCKET_ORDER = list(dict.fromkeys(row[2] for row in UNIVERSE))
+SYMBOLS_BY_BUCKET: dict[str, list[tuple[str, str]]] = {}
+for _symbol, _label, _bucket in UNIVERSE:
+    SYMBOLS_BY_BUCKET.setdefault(_bucket, []).append((_symbol, _label))
 
 
 def load_env() -> None:
@@ -93,11 +115,39 @@ def call_api(token: str, method: str, params: dict[str, Any] | None = None, time
         return json.loads(response.read().decode("utf-8"))
 
 
-def send_message(token: str, chat_id: int | str, text: str) -> None:
+def send_message(token: str, chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None) -> None:
+    params: dict[str, Any] = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
+    if reply_markup is not None:
+        params["reply_markup"] = reply_markup
     try:
-        call_api(token, "sendMessage", {"chat_id": chat_id, "text": text, "disable_web_page_preview": True})
+        call_api(token, "sendMessage", params)
     except Exception as exc:
         print(f"send_message failed: {exc}")
+
+
+def answer_callback(token: str, callback_query_id: str, text: str = "") -> None:
+    try:
+        call_api(token, "answerCallbackQuery", {"callback_query_id": callback_query_id, "text": text})
+    except Exception as exc:
+        print(f"answer_callback failed: {exc}")
+
+
+def categories_keyboard() -> dict[str, Any]:
+    buttons = [
+        [{"text": BUCKET_LABELS.get(bucket, bucket.title()), "callback_data": f"cat:{bucket}"}]
+        for bucket in BUCKET_ORDER
+    ]
+    return {"inline_keyboard": buttons}
+
+
+def symbols_keyboard(bucket: str) -> dict[str, Any]:
+    entries = SYMBOLS_BY_BUCKET.get(bucket, [])
+    rows = [
+        [{"text": f"{label} ({symbol})", "callback_data": f"sym:{symbol}"}]
+        for symbol, label in entries
+    ]
+    rows.append([{"text": "⬅️ Categories", "callback_data": "menu"}])
+    return {"inline_keyboard": rows}
 
 
 def fmt_pct(value: float | None) -> str:
@@ -273,6 +323,8 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
     try:
         if low in ("/start", "/help"):
             send_message(token, chat_id, HELP_TEXT)
+        elif low == "/menu":
+            send_message(token, chat_id, "Pick a category (or just type any ticker/name instead):", categories_keyboard())
         elif low == "/pick":
             send_message(token, chat_id, format_pick_reply())
         elif low == "/track":
@@ -287,6 +339,23 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
         send_message(token, chat_id, "Couldn't reach the market data source, try again in a bit.")
     except Exception as exc:
         print(f"handle_text error: {exc}")
+        send_message(token, chat_id, "Something went wrong looking that up.")
+
+
+def handle_callback(token: str, chat_id: int, callback_id: str, data: str) -> None:
+    answer_callback(token, callback_id)
+    try:
+        if data == "menu":
+            send_message(token, chat_id, "Pick a category (or just type any ticker/name instead):", categories_keyboard())
+        elif data.startswith("cat:"):
+            bucket = data.removeprefix("cat:")
+            label = BUCKET_LABELS.get(bucket, bucket.title())
+            send_message(token, chat_id, f"{label} — pick one:", symbols_keyboard(bucket))
+        elif data.startswith("sym:"):
+            symbol = data.removeprefix("sym:")
+            send_message(token, chat_id, format_research_reply(symbol))
+    except Exception as exc:
+        print(f"handle_callback error: {exc}")
         send_message(token, chat_id, "Something went wrong looking that up.")
 
 
@@ -305,6 +374,17 @@ def poll(token: str, allowed_chat_id: str | None) -> None:
 
         for update in resp.get("result", []):
             state["offset"] = update["update_id"] + 1
+
+            callback = update.get("callback_query")
+            if callback:
+                chat_id = callback["message"]["chat"]["id"]
+                if allowed_chat_id and str(chat_id) != str(allowed_chat_id):
+                    print(f"Ignoring callback from unauthorized chat {chat_id}")
+                    answer_callback(token, callback["id"])
+                    continue
+                handle_callback(token, chat_id, callback["id"], callback.get("data", ""))
+                continue
+
             message = update.get("message") or update.get("edited_message")
             if not message or "text" not in message:
                 continue
