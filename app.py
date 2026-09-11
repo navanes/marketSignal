@@ -20,6 +20,7 @@ ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "static"
 DATA_DIR = ROOT / "data"
 REPORTS_PATH = DATA_DIR / "reports.json"
+DAILY_LOG_PATH = DATA_DIR / "daily_reports.json"
 PREDICTIONS_DB = DATA_DIR / "predictions.sqlite3"
 MODEL_PATH = DATA_DIR / "model.json"
 # Which forecast model is live. "learned" = whatever champion sits in
@@ -929,6 +930,18 @@ def save_report_snapshot(data: dict[str, Any]) -> None:
         }
     )
     REPORTS_PATH.write_text(json.dumps(existing[-200:], indent=2), encoding="utf-8")
+
+
+def daily_log_entries(limit: int = 60) -> list[dict[str, Any]]:
+    """Read the dated 'what I worked on' log, newest date first."""
+    if not DAILY_LOG_PATH.exists():
+        return []
+    try:
+        entries = json.loads(DAILY_LOG_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+    entries = sorted(entries, key=lambda e: e.get("date", ""), reverse=True)
+    return entries[:limit]
 
 
 def prediction_direction(start_price: float, end_price: float, band_pct: float = 1.0) -> str:
@@ -1911,6 +1924,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/recommendation":
             self.send_json(200, buy_recommendation())
+            return
+        if parsed.path == "/api/daily-reports":
+            self.send_json(200, {"entries": daily_log_entries()})
             return
         if parsed.path == "/api/scorecard":
             path = DATA_DIR / "scorecard.json"

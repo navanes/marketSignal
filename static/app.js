@@ -1516,3 +1516,35 @@ async function renderHomeFacts() {
   }
 }
 if (PAGE === "home") renderHomeFacts();
+
+function formatLogDate(iso) {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+async function renderDailyReports() {
+  const list = document.querySelector("#dailyReportsList");
+  if (!list) return;
+  try {
+    const response = await fetch("/api/daily-reports");
+    const data = await response.json();
+    const entries = data.entries || [];
+    if (!entries.length) {
+      list.innerHTML = '<p class="daily-reports-empty">No reports yet. Check back after the first day\'s work.</p>';
+      return;
+    }
+    list.innerHTML = entries
+      .map(
+        (entry) => `
+          <article class="daily-report-day">
+            <h4>${formatLogDate(entry.date)}</h4>
+            <ul>${(entry.notes || []).map((note) => `<li>${note}</li>`).join("")}</ul>
+          </article>`
+      )
+      .join("");
+  } catch {
+    list.innerHTML = '<p class="daily-reports-empty">Couldn\'t load the daily reports.</p>';
+  }
+}
+if (PAGE === "home") renderDailyReports();

@@ -285,6 +285,42 @@ a {
   color: var(--ink);
 }
 
+.daily-reports-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+.daily-report-day {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.daily-report-day h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.daily-report-day ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+.daily-report-day li {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.daily-reports-empty {
+  color: var(--muted);
+  font-size: 13.5px;
+  margin: 14px 0 0;
+}
+
 /* prose pages */
 .prose-panel {
   padding: 26px 28px;
