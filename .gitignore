@@ -13,3 +13,4 @@ data/model_rejected.json
 .env
 .telegram_bot.lock
 data/.telegram_bot_state.json
+data/weekly_reports/
