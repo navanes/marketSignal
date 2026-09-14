@@ -746,6 +746,46 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.horizon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.horizon-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 3px solid var(--line);
+}
+.horizon-card[data-state="good"] { border-left-color: var(--brand); }
+.horizon-card[data-state="bad"] { border-left-color: var(--red); }
+.horizon-card-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.horizon-card-action {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+.horizon-card[data-state="good"] .horizon-card-action { color: var(--brand-dark); }
+.horizon-card[data-state="bad"] .horizon-card-action { color: var(--red); }
+.horizon-card-move,
+.horizon-card-confidence {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.horizon-loading {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 410px);

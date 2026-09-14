@@ -15,6 +15,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from universe import SCAN_HORIZONS
+
 
 ROOT = Path(__file__).parent
 STATIC_DIR = ROOT / "static"
@@ -111,7 +113,7 @@ def normalize_horizon_days(value: Any) -> int:
         except ValueError:
             pass
     try:
-        return max(2, min(int(round(float(value))), 365))
+        return max(1, min(int(round(float(value))), 365))
     except (TypeError, ValueError):
         return DEFAULT_HORIZON_DAYS
 
@@ -1850,6 +1852,67 @@ def research(query: str, period: str = "6mo", horizon_days: int = DEFAULT_HORIZO
     return data
 
 
+HORIZON_LABELS: dict[int, str] = {
+    1: "Daily",
+    10: "~2 Weeks",
+    30: "Monthly",
+    90: "3 Months",
+    180: "6 Months",
+    365: "1 Year",
+}
+
+
+def multi_horizon_signals(
+    query: str, period: str = "6mo", horizons: list[int] | None = None
+) -> dict[str, Any]:
+    """Buy/hold/sell across several horizons at once, e.g. for a "how does
+    this look daily vs. long-term" view. Fetches the chart + news ONCE
+    (those don't depend on horizon) and reuses them for every horizon, and
+    — unlike research() — does not log a prediction snapshot, since this is
+    a quick glance, not an official logged call."""
+    horizons = horizons or SCAN_HORIZONS
+    symbol = normalize_symbol(query)
+    selected_period = period if period in PERIODS else "6mo"
+    series: list[dict[str, Any]] = []
+    try:
+        chart = yahoo_chart(symbol, selected_period)
+        series = trim_series_to_months(price_series(chart), period_config(selected_period)["months"])
+        quote = quote_summary(symbol, chart, series, selected_period)
+    except (ValueError, urllib.error.URLError) as exc:
+        quote = news_only_quote(query, symbol, str(exc), selected_period)
+    news = google_news(query or symbol)
+    sentiment = news_sentiment(news)
+
+    rows = []
+    for horizon_days in horizons:
+        horizon_days = normalize_horizon_days(horizon_days)
+        analytics = analytics_summary(series, selected_period, horizon_days)
+        signal = build_signal(quote, sentiment, analytics)
+        forecast_model = learned_forecast(series, quote, analytics, horizon_days) or directional_forecast(
+            quote, sentiment, analytics
+        )
+        forecast_model = apply_overlays(forecast_model, symbol, sentiment, quote)
+        rows.append({
+            "horizon_days": horizon_days,
+            "label": HORIZON_LABELS.get(horizon_days, f"{horizon_days}d"),
+            "action": signal.get("action"),
+            "stance": signal.get("stance"),
+            "confidence": signal.get("confidence"),
+            "direction": forecast_model.get("direction"),
+            "expected_return_pct": forecast_model.get("expected_return_pct"),
+        })
+
+    return {
+        "query": query,
+        "symbol": quote.get("symbol", symbol),
+        "name": quote.get("name", symbol),
+        "price": quote.get("price"),
+        "currency": quote.get("currency"),
+        "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "horizons": rows,
+    }
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"{self.address_string()} - {fmt % args}")
@@ -1955,6 +2018,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/research/horizons":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                query = str(payload.get("query", "")).strip()
+                period = str(payload.get("period", "6mo")).strip()
+                data = multi_horizon_signals(query, period)
+                self.send_json(200, data)
+            except ValueError as exc:
+                self.send_json(400, {"error": str(exc)})
+            except urllib.error.URLError as exc:
+                self.send_json(502, {"error": f"Could not reach a market/news data source: {exc}"})
+            except Exception as exc:
+                self.send_json(500, {"error": f"Research failed: {exc}"})
+            return
         if parsed.path != "/api/research":
             self.send_error(404)
             return

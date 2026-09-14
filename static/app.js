@@ -1223,10 +1223,45 @@ async function runResearch(query, period = currentPeriod) {
     addMarketOption(query);
     render(data);
     await loadPredictionTracker();
+    loadHorizonPanel(query, period); // fire-and-forget, fills in once ready
   } catch (error) {
     renderError(error.message);
   } finally {
     setLoading(false);
+  }
+}
+
+const HORIZON_ARROW = { up: "▲", down: "▼" };
+
+async function loadHorizonPanel(query, period) {
+  const panel = document.querySelector("#horizonPanel");
+  const grid = document.querySelector("#horizonGrid");
+  if (!panel || !grid) return;
+  panel.hidden = false;
+  grid.innerHTML = '<p class="horizon-loading">Checking daily through annual...</p>';
+  try {
+    const response = await fetch("/api/research/horizons", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, period }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Couldn't load timeframes.");
+    grid.innerHTML = (data.horizons || [])
+      .map((h) => {
+        const arrow = HORIZON_ARROW[h.direction] || "→";
+        const state = h.stance === "constructive" ? "good" : h.stance === "defensive" ? "bad" : "neutral";
+        return `
+          <article class="horizon-card" data-state="${state}">
+            <span class="horizon-card-label">${h.label}</span>
+            <strong class="horizon-card-action">${h.action || "n/a"}</strong>
+            <span class="horizon-card-move">${arrow} ${formatPct(h.expected_return_pct)}</span>
+            <span class="horizon-card-confidence">${h.confidence || "n/a"} confidence</span>
+          </article>`;
+      })
+      .join("");
+  } catch (error) {
+    grid.innerHTML = `<p class="horizon-loading">${error.message}</p>`;
   }
 }
 
