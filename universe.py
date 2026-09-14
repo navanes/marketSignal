@@ -60,5 +60,8 @@ SYMBOLS: list[str] = [row[0] for row in UNIVERSE]
 LABELS: dict[str, str] = {row[0]: row[1] for row in UNIVERSE}
 BUCKETS: dict[str, str] = {row[0]: row[2] for row in UNIVERSE}
 
-# Horizons (calendar days) the nightly scan logs a prediction for.
-SCAN_HORIZONS: list[int] = [10, 30]
+# Horizons (calendar days) the nightly scan logs a prediction for — short-term
+# (1d, 10d) through long-term (90d/180d/365d), so accuracy gets tracked across
+# daily-trade, monthly, quarterly, semi-annual, and annual timeframes as the
+# graded history accumulates.
+SCAN_HORIZONS: list[int] = [1, 10, 30, 90, 180, 365]
