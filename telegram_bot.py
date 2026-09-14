@@ -319,10 +319,53 @@ def format_research_reply(query: str) -> str:
     return message
 
 
-def format_pick_reply() -> str:
-    rec = app.buy_recommendation()
+_CATEGORY_KEYWORDS = {
+    "crypto": ["crypto", "cryptos", "cryptocurrency", "cryptocurrencies", "coin", "coins", "altcoin", "altcoins"],
+    "tech": ["tech", "technology"],
+    "semis": ["chip", "chips", "semiconductor", "semiconductors"],
+    "autos": ["auto", "autos", "car stock", "car stocks"],
+    "software": ["software"],
+    "financials": ["bank", "banks", "financial", "financials"],
+    "healthcare": ["healthcare", "health care", "pharma", "pharmaceutical"],
+    "consumer": ["consumer", "retail"],
+    "energy": ["energy", "oil", "gas stock"],
+    "industrials": ["industrial", "industrials"],
+    "etf": ["etf", "index fund", "index funds", "indices"],
+}
+
+
+_CATEGORY_TALK = {
+    "crypto": "crypto",
+    "tech": "tech",
+    "semis": "chip",
+    "autos": "auto",
+    "software": "software",
+    "financials": "financial",
+    "healthcare": "healthcare",
+    "consumer": "consumer",
+    "energy": "energy",
+    "industrials": "industrial",
+    "etf": "index fund",
+}
+
+
+def extract_category(text: str) -> str | None:
+    low = text.lower()
+    for bucket, words in _CATEGORY_KEYWORDS.items():
+        for word in words:
+            if re.search(rf"\b{re.escape(word)}\b", low):
+                return bucket
+    return None
+
+
+def format_pick_reply(bucket: str | None = None) -> str:
+    symbols = [s for s, _label in SYMBOLS_BY_BUCKET.get(bucket, [])] if bucket else None
+    rec = app.buy_recommendation(symbols=symbols)
     pick = rec.get("pick")
+    category_phrase = f"{_CATEGORY_TALK.get(bucket, bucket)} " if bucket else ""
     if not pick:
+        if bucket:
+            return f"Nothing graded yet on the {category_phrase}side of things — ask me again after a scan or two."
         return rec.get("note") or "No pick available yet — the watch list hasn't graded enough calls."
 
     checks = pick.get("checks", 0) or 0
@@ -330,8 +373,9 @@ def format_pick_reply() -> str:
     chance_pct, chance_basis = estimate_chance_right(pick["symbol"], checks, correct)
     confidence_talk = _CONFIDENCE_TALK.get(pick.get("confidence", ""), "")
 
+    scope = f"the {category_phrase.strip()} I watch" if bucket else "everything I watch"
     opener = random.choice([
-        f"Out of everything I watch, {pick['symbol']} ({pick.get('name', pick['symbol'])}) looks hottest to me right now. 📈",
+        f"Out of {scope}, {pick['symbol']} ({pick.get('name', pick['symbol'])}) looks hottest to me right now. 📈",
         f"If you want my honest pick, it's {pick['symbol']} ({pick.get('name', pick['symbol'])}) right now.",
         f"{pick['symbol']} ({pick.get('name', pick['symbol'])}) is the one standing out to me at the moment.",
     ])
@@ -421,7 +465,7 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
             if known:
                 send_message(token, chat_id, format_research_reply(known))
             elif looks_like_recommend_request(query):
-                send_message(token, chat_id, format_pick_reply())
+                send_message(token, chat_id, format_pick_reply(extract_category(query)))
             else:
                 send_message(token, chat_id, format_research_reply(query))
     except ValueError as exc:

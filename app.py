@@ -1220,11 +1220,17 @@ _CONFIDENCE_WEIGHT = {
 }
 
 
-def buy_recommendation() -> dict[str, Any]:
+def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
     """One brief "which of the tracked markets would I buy" call, blending each
     market's latest forecast (direction, expected return, confidence) with how
-    often the model has actually been right on that same market."""
+    often the model has actually been right on that same market.
+
+    Pass `symbols` to restrict the ranking to a subset (e.g. just the crypto
+    names) instead of the whole watch list."""
     rows = prediction_rows(limit=500)
+    if symbols is not None:
+        wanted = {s.upper() for s in symbols}
+        rows = [row for row in rows if row["symbol"] in wanted]
     if not rows:
         return {
             "as_of": dt.datetime.now().isoformat(timespec="seconds"),
