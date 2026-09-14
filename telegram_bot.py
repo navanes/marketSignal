@@ -394,15 +394,58 @@ def format_pick_reply(bucket: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def format_top_picks(n: int, bucket: str | None = None) -> str:
+    symbols = [s for s, _label in SYMBOLS_BY_BUCKET.get(bucket, [])] if bucket else None
+    rec = app.buy_recommendation(symbols=symbols)
+    ranked = rec.get("ranked") or []
+    if not ranked:
+        return rec.get("note") or "Not enough graded history yet to rank anything."
+
+    n = max(1, min(n, len(ranked)))
+    scope = f"the {_CATEGORY_TALK.get(bucket, bucket)} names I watch" if bucket else "everything I watch"
+    lines = [f"Here's my top {n} out of {scope} right now:"]
+    for i, item in enumerate(ranked[:n], 1):
+        arrow = {"up": "📈", "down": "📉"}.get(item.get("direction", "sideways"), "➡️")
+        acc = item.get("accuracy_pct")
+        acc_txt = f", {acc:.0f}% hit rate so far" if acc is not None else ""
+        lines.append(
+            f"{i}. {item['symbol']} {arrow} {fmt_pct(item.get('expected_return_pct'))} over "
+            f"{item.get('horizon_days', 30)}d, {item.get('confidence', 'n/a')} confidence{acc_txt}"
+        )
+    lines.append(random.choice(_CLOSERS))
+    return "\n".join(lines)
+
+
 _RECOMMEND_INTENT = re.compile(
-    r"\b(hot|hottest|recommend|suggest|best|top pick|what should i (buy|invest|get)|"
-    r"which (one|market|stock|coin|crypto)|what('?s| is) good|any (tips|ideas|advice))\b",
+    r"\b(hot|hottest|recommend\w*|suggest\w*|best|top\s*\d*|what should i (buy|invest|get)|"
+    r"which (one|ones|market|markets|stock|stocks|coin|coins|crypto|cryptos)|"
+    r"what('?s| is) good|any (tips|ideas|advice))\b",
+    re.IGNORECASE,
+)
+
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+_COUNT_RE = re.compile(
+    r"\btop\s+(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")\b"
+    r"|\b(\d{1,2}|" + "|".join(_NUMBER_WORDS) + r")\s+(recommendations?|picks?|options|choices)\b",
     re.IGNORECASE,
 )
 
 
 def looks_like_recommend_request(text: str) -> bool:
     return bool(_RECOMMEND_INTENT.search(text))
+
+
+def extract_count(text: str) -> int | None:
+    """Pull a 'top 5' / 'top five' / '3 recommendations' style count out of a
+    recommend-intent question. Returns None if no count was mentioned."""
+    m = _COUNT_RE.search(text.lower())
+    if not m:
+        return None
+    token = m.group(1) or m.group(2)
+    return int(token) if token.isdigit() else _NUMBER_WORDS[token]
 
 
 _EXTRA_ALIASES = {"bitcoin": "BTC-USD", "btc": "BTC-USD", "ethereum": "ETH-USD", "eth": "ETH-USD"}
@@ -421,6 +464,24 @@ def extract_known_symbol(text: str) -> str | None:
         if re.search(rf"\b{re.escape(alias)}\b", low):
             return symbol
     return None
+
+
+_CHITCHAT_REPLIES = [
+    "Sounds good, no rush. Ping me with a ticker, crypto, or \"what's hot\" whenever you want my take.",
+    "All good — take your time. I'm checking the numbers every night either way, so ask whenever.",
+    "👍 No pressure. Just say a symbol, or ask \"what's hot right now\", and I'll give you my honest read.",
+    "For sure. I'm here whenever — just throw a ticker or \"recommend me something\" at me.",
+]
+
+
+def looks_like_chitchat(text: str) -> bool:
+    """A long sentence with no recognized symbol and no recommend-intent is
+    almost certainly not a market question — e.g. "that's fine, I'm not
+    going to buy anything right now" would otherwise get force-fed into
+    research() as if it were a literal ticker. Short strings (<=5 words)
+    are still treated as a possible ticker/company name guess."""
+    words = re.findall(r"[A-Za-z']+", text)
+    return len(words) > 5
 
 
 def format_track_reply() -> str:
@@ -465,7 +526,13 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
             if known:
                 send_message(token, chat_id, format_research_reply(known))
             elif looks_like_recommend_request(query):
-                send_message(token, chat_id, format_pick_reply(extract_category(query)))
+                count = extract_count(query)
+                if count and count > 1:
+                    send_message(token, chat_id, format_top_picks(count, extract_category(query)))
+                else:
+                    send_message(token, chat_id, format_pick_reply(extract_category(query)))
+            elif looks_like_chitchat(query):
+                send_message(token, chat_id, random.choice(_CHITCHAT_REPLIES))
             else:
                 send_message(token, chat_id, format_research_reply(query))
     except ValueError as exc:
