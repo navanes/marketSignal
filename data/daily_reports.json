@@ -29,7 +29,11 @@
     "date": "2026-09-14",
     "notes": [
       "Checked 6 stocks tonight and wrote down 6 new guesses.",
-      "So far, out of 46 guesses checked, 37% were right."
+      "So far, out of 46 guesses checked, 37% were right.",
+      "Renamed the project folder to Market Signal, everything still works.",
+      "Set up something new: the model didn't just get checked today, it actually retrained itself for the first time.",
+      "Tried a new model style (gbt) against the old one (ridge) - the new one won, so it's in charge now.",
+      "Now also tracking real short (1 day) and long (3mo, 6mo, 1 year) predictions, not just 10 and 30 days."
     ]
   }
 ]
