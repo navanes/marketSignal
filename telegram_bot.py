@@ -18,6 +18,7 @@ import datetime as dt
 import fcntl
 import json
 import os
+import random
 import re
 import sqlite3
 import sys
@@ -39,17 +40,18 @@ LOCK_PATH = ROOT / ".telegram_bot.lock"
 API_BASE = "https://api.telegram.org/bot{token}/{method}"
 
 HELP_TEXT = (
-    "Ask me about any stock, ETF, index, or crypto — just type a ticker or name, "
-    "like AAPL, tesla, or bitcoin. Full sentences work too, like "
-    "\"should I buy bitcoin?\" or \"what's hot right now?\"\n\n"
+    "Hey! Ask me about any stock, ETF, index, or crypto and I'll give you my honest "
+    "take — buy, hold, or sell. Just type a ticker or name, like AAPL, tesla, or bitcoin. "
+    "Full sentences work too, like \"should I buy bitcoin?\" or \"what's hot right now?\"\n\n"
     "Or tap /menu to pick one from the watch list — and if it's not there, "
     "just type your own.\n\n"
     "Commands:\n"
     "/menu — browse the watch list by category\n"
-    "/pick — today's top-ranked market across the whole watch list\n"
-    "/track — how often the model has actually been right so far\n"
+    "/pick — my top pick across the whole watch list right now\n"
+    "/track — how often I've actually been right so far, no sugarcoating\n"
     "/help — this message\n\n"
-    "Research only, not financial advice — this is one input, not a green light."
+    "Heads up: this is research, not licensed financial advice — treat me like a "
+    "friend with an opinion, not a guarantee."
 )
 
 BUCKET_LABELS = {
@@ -186,11 +188,50 @@ _VERDICTS = {
     "Strong Buy / Accumulate": ("BUY", "the setup looks strong right now"),
     "Buy / Accumulate": ("BUY", "the setup leans in your favor"),
     "Watch / Selective Buy": ("WAIT", "it's leaning positive but not clearly enough yet"),
-    "Strong Avoid / Reduce": ("SELL / AVOID", "the setup looks weak right now"),
-    "Avoid / Consider Reducing": ("SELL / AVOID", "the setup leans against it"),
+    "Strong Avoid / Reduce": ("SELL", "the setup looks weak right now"),
+    "Avoid / Consider Reducing": ("SELL", "the setup leans against it"),
     "Hold / Wait": ("HOLD", "nothing here is clear enough to act on"),
     "Neutral / Need More Evidence": ("WAIT", "it's too mixed to call either way"),
 }
+
+_OPENERS = {
+    "BUY": [
+        "Honestly? I'd buy {sym} here. 📈",
+        "If you're asking me, I'd pick some {sym} up right now.",
+        "I like {sym} at the moment — I'd go for it.",
+        "{sym} is looking good to me right now, I'd buy.",
+    ],
+    "HOLD": [
+        "I'd just hold {sym} for now, no need to move either way.",
+        "Nothing urgent on {sym} — I'd sit tight if you've already got it.",
+        "{sym}'s in a quiet spot. I'd hold, not add or cut.",
+    ],
+    "WAIT": [
+        "I'd wait on {sym} for now — it's not giving a clear signal. 🤔",
+        "Honestly {sym} is too mixed to call right now, I'd hang back.",
+        "I wouldn't jump on {sym} yet, still murky.",
+    ],
+    "SELL": [
+        "I'd stay away from {sym} right now, doesn't look great. 📉",
+        "If I'm honest, {sym} isn't looking good — I'd avoid or trim it.",
+        "I'm not liking {sym} at the moment, I'd steer clear.",
+    ],
+}
+
+_CONFIDENCE_TALK = {
+    "high": "and I'm pretty confident about it",
+    "medium-high": "and I feel good about it, though never 100% sure",
+    "medium": "moderate confidence though, nothing crazy",
+    "low-medium": "but I'm not super confident, kind of a toss-up",
+    "low": "though honestly, confidence is low here, so take it loosely",
+}
+
+_CLOSERS = [
+    "Not a promise though, just my honest read on the numbers.",
+    "Take it as one opinion, not gospel — you know your own risk tolerance better than I do.",
+    "I could be wrong, that's just what the numbers are telling me right now.",
+    "Don't bet the house on it — this is one input, not a sure thing.",
+]
 
 
 def _scorecard_years() -> int | None:
@@ -260,17 +301,20 @@ def format_research_reply(query: str) -> str:
         history_bits.append(f"{row['n']} real checks on {symbol} so far ({pct}% of those were right)")
     history_phrase = " and ".join(history_bits) if history_bits else "not much graded history yet"
 
-    price_phrase = f"{symbol} is at {price} {currency}".strip() + ". " if price else ""
+    price_phrase = f"It's at {price} {currency} right now.".strip() if price else ""
 
     chance_pct, chance_basis = estimate_chance_right(symbol, row["n"] or 0, row["c"] or 0)
+    confidence_talk = _CONFIDENCE_TALK.get(fc.get("confidence", ""), "")
+
+    opener = random.choice(_OPENERS.get(verdict, _OPENERS["WAIT"])).format(sym=symbol)
+    closer = random.choice(_CLOSERS)
 
     message = (
-        f"{price_phrase}"
-        f"My take: {verdict}. Based on {history_phrase}, {casual_reason} — {move_phrase}, "
-        f"confidence is {fc.get('confidence', 'n/a')}.\n\n"
-        f"Chance this call is right: about {chance_pct}% (risk of being wrong: about {100 - chance_pct}%), "
-        f"from {chance_basis}.\n\n"
-        f"Not a promise, just the model's best read — treat this as one opinion, not a sure thing."
+        f"{opener} {price_phrase}\n\n"
+        f"Here's why: {casual_reason}, based on {history_phrase} — {move_phrase} {confidence_talk}.\n\n"
+        f"I'd put the odds around {chance_pct}% that this call plays out (so about {100 - chance_pct}% it doesn't), "
+        f"going off {chance_basis}.\n\n"
+        f"{closer}"
     )
     return message
 
@@ -284,18 +328,25 @@ def format_pick_reply() -> str:
     checks = pick.get("checks", 0) or 0
     correct = round(checks * (pick.get("accuracy_pct") or 0) / 100)
     chance_pct, chance_basis = estimate_chance_right(pick["symbol"], checks, correct)
+    confidence_talk = _CONFIDENCE_TALK.get(pick.get("confidence", ""), "")
+
+    opener = random.choice([
+        f"Out of everything I watch, {pick['symbol']} ({pick.get('name', pick['symbol'])}) looks hottest to me right now. 📈",
+        f"If you want my honest pick, it's {pick['symbol']} ({pick.get('name', pick['symbol'])}) right now.",
+        f"{pick['symbol']} ({pick.get('name', pick['symbol'])}) is the one standing out to me at the moment.",
+    ])
 
     lines = [
-        f"Out of everything I watch, {pick['symbol']} ({pick.get('name', pick['symbol'])}) looks hottest right now.",
-        f"My take: BUY. Model sees it moving about {fmt_pct(pick.get('expected_return_pct'))} over "
-        f"{pick.get('horizon_days', 30)} days, confidence {pick.get('confidence', 'n/a')}.",
-        f"Chance this call is right: about {chance_pct}% (risk of being wrong: about {100 - chance_pct}%), "
-        f"from {chance_basis}.",
+        opener,
+        f"I'd say buy — it's moving about {fmt_pct(pick.get('expected_return_pct'))} over "
+        f"{pick.get('horizon_days', 30)} days {confidence_talk}.",
+        f"I'd put the odds around {chance_pct}% that this plays out (about {100 - chance_pct}% it doesn't), "
+        f"going off {chance_basis}.",
     ]
     runner = rec.get("runner_up")
     if runner:
-        lines.append(f"Runner-up: {runner['symbol']} ({fmt_pct(runner.get('expected_return_pct'))} expected).")
-    lines.append("Not a promise, just the model's best read — treat this as one opinion, not a sure thing.")
+        lines.append(f"Second choice would be {runner['symbol']} ({fmt_pct(runner.get('expected_return_pct'))} expected).")
+    lines.append(random.choice(_CLOSERS))
     return "\n".join(lines)
 
 
