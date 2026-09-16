@@ -63,6 +63,7 @@ BUCKET_LABELS = {
     "healthcare": "🩺 Healthcare",
     "consumer": "🛒 Consumer",
     "energy": "🛢️ Energy",
+    "power": "⚡ Power",
     "industrials": "🏗️ Industrials",
     "etf": "📊 Indexes",
     "crypto": "₿ Crypto",
@@ -329,6 +330,7 @@ _CATEGORY_KEYWORDS = {
     "healthcare": ["healthcare", "health care", "pharma", "pharmaceutical"],
     "consumer": ["consumer", "retail"],
     "energy": ["energy", "oil", "gas stock"],
+    "power": ["power", "utility", "utilities", "grid", "data center power", "data-center power"],
     "industrials": ["industrial", "industrials"],
     "etf": ["etf", "index fund", "index funds", "indices"],
 }
@@ -344,6 +346,7 @@ _CATEGORY_TALK = {
     "healthcare": "healthcare",
     "consumer": "consumer",
     "energy": "energy",
+    "power": "power/utility",
     "industrials": "industrial",
     "etf": "index fund",
 }
