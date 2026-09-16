@@ -33,7 +33,17 @@
       "Renamed the project folder to Market Signal, everything still works.",
       "Set up something new: the model didn't just get checked today, it actually retrained itself for the first time.",
       "Tried a new model style (gbt) against the old one (ridge) - the new one won, so it's in charge now.",
-      "Now also tracking real short (1 day) and long (3mo, 6mo, 1 year) predictions, not just 10 and 30 days."
+      "Now also tracking real short (1 day) and long (3mo, 6mo, 1 year) predictions, not just 10 and 30 days.",
+      "Checked 246 stocks tonight and wrote down 246 new guesses.",
+      "2 of 2 older guesses that came due today turned out right.",
+      "So far, out of 48 guesses checked, 40% were right."
+    ]
+  },
+  {
+    "date": "2026-09-15",
+    "notes": [
+      "Checked 246 stocks tonight and wrote down 246 new guesses.",
+      "So far, out of 48 guesses checked, 40% were right."
     ]
   }
 ]
