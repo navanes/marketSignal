@@ -1,11 +1,14 @@
 """Proactive "this looks like a real buy" pings to Telegram.
 
-Runs at the end of the nightly scan (see scan.py). Looks at that night's
-freshly logged 30-day calls and pushes an unsolicited message for anything
-that clears a real bar — a genuine Buy/Strong Buy action at high or
-medium-high confidence, not just "Watch" or a mixed signal. A per-symbol
-cooldown stops the same name from re-alerting every single night while it
-stays in a buy zone.
+Runs at the end of the nightly scan (see scan.py). Checks EVERY tracked
+horizon for that night's freshly logged calls — daily through annual — and
+pushes an unsolicited message for a symbol the moment any of them clears a
+real bar: a genuine Buy/Strong Buy action at high or medium-high confidence,
+not just "Watch" or a mixed signal. The message says which specific
+timeframe(s) qualified (a stock can look like a short-term trade, a
+long-term hold, both, or neither) rather than assuming one fixed horizon. A
+per-symbol cooldown stops the same name from re-alerting every single night
+while it stays in a buy zone.
 
 Run:  python3 alerts.py
 """
@@ -46,15 +49,19 @@ def _save_state(state: dict[str, str]) -> None:
     STATE_PATH.write_text(json.dumps(state, indent=2))
 
 
-def _tonights_candidates() -> list[dict[str, Any]]:
+def _tonights_candidates() -> dict[str, list[dict[str, Any]]]:
+    """Every horizon logged tonight, grouped by symbol."""
     with sqlite3.connect(app.PREDICTIONS_DB) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT symbol, name, action, confidence, predicted_direction, "
-            "expected_return_pct, start_price FROM predictions "
-            "WHERE date(created_at) = date('now') AND horizon_days = 30"
+            "expected_return_pct, start_price, horizon_days FROM predictions "
+            "WHERE date(created_at) = date('now')"
         ).fetchall()
-    return [dict(r) for r in rows]
+    by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_symbol.setdefault(row["symbol"], []).append(dict(row))
+    return by_symbol
 
 
 def check_and_send() -> int:
@@ -71,18 +78,10 @@ def check_and_send() -> int:
     today = dt.date.today()
     sent = 0
 
-    for row in _tonights_candidates():
-        symbol = row["symbol"]
-        if row["action"] not in QUALIFYING_ACTIONS:
-            continue
-        if row["confidence"] not in QUALIFYING_CONFIDENCE:
-            continue
-
+    for symbol, rows in _tonights_candidates().items():
         last_alerted = state.get(symbol)
-        if last_alerted:
-            days_since = (today - dt.date.fromisoformat(last_alerted)).days
-            if days_since < COOLDOWN_DAYS:
-                continue
+        if last_alerted and (today - dt.date.fromisoformat(last_alerted)).days < COOLDOWN_DAYS:
+            continue
 
         with sqlite3.connect(app.PREDICTIONS_DB) as conn:
             conn.row_factory = sqlite3.Row
@@ -95,12 +94,45 @@ def check_and_send() -> int:
         if chance_pct < MIN_CHANCE_PCT:
             continue
 
-        price_phrase = f", currently around {row['start_price']}" if row["start_price"] else ""
+        qualifying = [
+            row for row in rows
+            if row["action"] in QUALIFYING_ACTIONS
+            and row["confidence"] in QUALIFYING_CONFIDENCE
+            # The action label (technicals/momentum) and the forecast
+            # (expected_return_pct) come from different parts of the model and
+            # can disagree — e.g. a "Buy" action next to a negative expected
+            # move. Only alert where they actually agree.
+            and (row["expected_return_pct"] or 0) > 0
+        ]
+        if not qualifying:
+            continue
+        qualifying.sort(key=lambda r: r["horizon_days"])
+
+        name = rows[0]["name"]
+        price = rows[0]["start_price"]
+        price_phrase = f" It's currently around {price}." if price else ""
+
+        def _timeframe_line(row: dict[str, Any]) -> str:
+            label = app.HORIZON_LABELS.get(row["horizon_days"], f"{row['horizon_days']}d")
+            action_word = row["action"].split(" / ")[0]
+            move = tb.fmt_pct(row["expected_return_pct"])
+            return f"• {label}: {action_word}, {move}, {row['confidence']} confidence"
+
+        timeframe_lines = "\n".join(_timeframe_line(row) for row in qualifying)
+        shortest, longest = qualifying[0]["horizon_days"], qualifying[-1]["horizon_days"]
+        if shortest == longest:
+            span_note = ""
+        elif longest <= 30:
+            span_note = " Looks like more of a short-term move than a long-term hold."
+        elif shortest >= 90:
+            span_note = " Looks like more of a long-term hold than a quick trade."
+        else:
+            span_note = " Clears the bar on both short and long timeframes."
+
         message = (
-            f"Hey — this looks like a moment for {symbol} ({row['name']}). 📈\n\n"
-            f"It's a {row['action'].split(' / ')[0].lower()} call, {row['confidence']} confidence: "
-            f"model sees it moving about {tb.fmt_pct(row['expected_return_pct'])} over the next 30 days"
-            f"{price_phrase}.\n\n"
+            f"Hey — this looks like a moment for {symbol} ({name}). 📈{price_phrase}\n\n"
+            f"Clears the bar on:\n{timeframe_lines}\n"
+            f"{span_note}\n\n"
             f"Chance this call is right: about {chance_pct}%, going off {chance_basis}.\n\n"
             f"Not a promise — just flagging it because it cleared a real bar tonight, not a hunch."
         )
