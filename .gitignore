@@ -13,5 +13,6 @@ data/model_rejected.json
 .env
 .telegram_bot.lock
 data/.telegram_bot_state.json
+data/alert_state.json
 data/weekly_reports/
 deploy/_retrain_runner.sh

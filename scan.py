@@ -16,6 +16,7 @@ import sqlite3
 import sys
 import time
 
+import alerts
 import app
 import daily_summary
 from universe import SYMBOLS, SCAN_HORIZONS
@@ -78,6 +79,13 @@ def main() -> int:
         daily_summary.write_scan_summary(logged, skipped, failed, newly_graded)
     except Exception as exc:
         print(f"daily_summary failed: {exc}")
+
+    try:
+        n = alerts.check_and_send()
+        if n:
+            print(f"alerts: sent {n} buy alert(s).")
+    except Exception as exc:
+        print(f"alerts failed: {exc}")
 
     return 0
 
