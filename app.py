@@ -1006,6 +1006,8 @@ def init_prediction_db() -> None:
             ("expected_return_pct", "REAL"),
             ("model_expected_return_pct", "REAL"),
             ("overlay_tilt_pct", "REAL"),
+            ("political_mention", "INTEGER"),
+            ("political_headline", "TEXT"),
         ):
             if column not in existing:
                 conn.execute(f"ALTER TABLE predictions ADD COLUMN {column} {decl}")
@@ -1048,6 +1050,7 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
 
     due_date = (dt.date.today() + dt.timedelta(days=horizon_days)).isoformat()
     technical = analytics.get("technical", {})
+    political_mention = data.get("political_mention")
     init_prediction_db()
     with sqlite3.connect(PREDICTIONS_DB) as conn:
         cursor = conn.execute(
@@ -1056,8 +1059,8 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
                 created_at, due_date, query, symbol, name, horizon_sessions, start_price, target_price,
                 predicted_direction, confidence, action, score, period, sentiment, trend, rsi14,
                 macd_histogram, support, resistance, model, horizon_days, band_pct, expected_return_pct,
-                model_expected_return_pct, overlay_tilt_pct
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                model_expected_return_pct, overlay_tilt_pct, political_mention, political_headline
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["generated_at"],
@@ -1085,6 +1088,8 @@ def save_prediction_snapshot(data: dict[str, Any]) -> dict[str, Any] | None:
                 expected_return_pct,
                 model_expected,
                 overlay_tilt,
+                1 if political_mention else 0,
+                political_mention.get("headline") if political_mention else None,
             ),
         )
         prediction_id = cursor.lastrowid
@@ -1395,6 +1400,34 @@ def google_news(query: str, limit: int = 10) -> list[dict[str, str]]:
             }
         )
     return items
+
+
+POLITICAL_TERMS = (
+    "trump", "white house", "president trump", "administration",
+    "tariff", "tariffs", "executive order", "trade deal", "trade war",
+)
+
+
+def detect_political_mention(news: list[dict[str, str]], hours: int = 72) -> dict[str, str] | None:
+    """Flag when a recent headline mentions Trump/the administration — capture
+    the signal so it can be measured against actual outcomes over time,
+    rather than assuming it matters before there's evidence either way."""
+    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+    for item in news:
+        title_low = item.get("title", "").lower()
+        if not any(term in title_low for term in POLITICAL_TERMS):
+            continue
+        published = item.get("published") or ""
+        try:
+            when = dt.datetime.fromisoformat(published)
+            if when.tzinfo is None:
+                when = when.replace(tzinfo=dt.timezone.utc)
+            if when < cutoff:
+                continue
+        except ValueError:
+            pass  # no parseable date — include it rather than silently drop it
+        return {"headline": item.get("title", ""), "source": item.get("source", ""), "published": published}
+    return None
 
 
 POSITIVE_TERMS = {
@@ -1821,6 +1854,7 @@ def research(query: str, period: str = "6mo", horizon_days: int = DEFAULT_HORIZO
         quote = news_only_quote(query, symbol, str(exc), selected_period)
     news = google_news(query or symbol)
     sentiment = news_sentiment(news)
+    political_mention = detect_political_mention(news)
     analytics = analytics_summary(series, selected_period, horizon_days)
     signal = build_signal(quote, sentiment, analytics)
     forecast_model = learned_forecast(series, quote, analytics, horizon_days) or directional_forecast(
@@ -1836,6 +1870,7 @@ def research(query: str, period: str = "6mo", horizon_days: int = DEFAULT_HORIZO
         "period": selected_period,
         "horizon_days": horizon_days,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "political_mention": political_mention,
         "quote": quote,
         "sentiment": sentiment,
         "signal": signal,

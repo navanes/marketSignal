@@ -62,6 +62,18 @@ def write_scan_summary(logged: int, skipped: int, failed: int, newly_graded: int
         pct = round(total_correct / total_evaluated * 100)
         notes.append(f"So far, out of {total_evaluated} guesses checked, {pct}% were right.")
 
+    with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        mentioned = conn.execute(
+            "SELECT DISTINCT symbol, political_headline FROM predictions "
+            "WHERE date(created_at) = date('now') AND political_mention = 1"
+        ).fetchall()
+    if mentioned:
+        names = ", ".join(r["symbol"] for r in mentioned)
+        notes.append(
+            f"Trump/government news showed up for {names} today — watching to see if it moves them tomorrow."
+        )
+
     _append(notes)
 
 

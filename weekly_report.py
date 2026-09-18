@@ -82,7 +82,49 @@ def recent_daily_notes(days: int = 7) -> list[dict[str, Any]]:
     return sorted([e for e in entries if e.get("date", "") >= cutoff], key=lambda e: e["date"])
 
 
-def compose_take(stats: dict[str, Any], pick: dict[str, Any] | None, learned: dict[str, Any] | None) -> str:
+MIN_POLITICAL_SAMPLE = 20  # don't draw a conclusion from a handful of graded calls
+
+
+def political_signal_check() -> dict[str, Any] | None:
+    """Do stocks with a Trump/administration news mention actually do better
+    than everything else? Compares graded direction-accuracy for
+    political_mention=1 vs 0. Returns None until there's enough graded
+    history on the mention side to say anything meaningful — an untested
+    hunch shouldn't get treated as a finding."""
+    with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        mentioned = conn.execute(
+            "SELECT COUNT(*) n, SUM(direction_correct) c, AVG(target_error_pct) err "
+            "FROM predictions WHERE status='evaluated' AND political_mention = 1"
+        ).fetchone()
+        baseline = conn.execute(
+            "SELECT COUNT(*) n, SUM(direction_correct) c FROM predictions "
+            "WHERE status='evaluated' AND (political_mention = 0 OR political_mention IS NULL)"
+        ).fetchone()
+    if not mentioned["n"] or mentioned["n"] < MIN_POLITICAL_SAMPLE or not baseline["n"]:
+        return {
+            "ready": False,
+            "n": mentioned["n"] or 0,
+            "needed": MIN_POLITICAL_SAMPLE,
+        }
+    mentioned_acc = (mentioned["c"] or 0) / mentioned["n"] * 100
+    baseline_acc = (baseline["c"] or 0) / baseline["n"] * 100
+    return {
+        "ready": True,
+        "n": mentioned["n"],
+        "accuracy_pct": mentioned_acc,
+        "baseline_n": baseline["n"],
+        "baseline_accuracy_pct": baseline_acc,
+        "diff_pct": mentioned_acc - baseline_acc,
+    }
+
+
+def compose_take(
+    stats: dict[str, Any],
+    pick: dict[str, Any] | None,
+    learned: dict[str, Any] | None,
+    political: dict[str, Any] | None = None,
+) -> str:
     parts = []
     if stats["week_n"]:
         cmp_word = (
@@ -117,6 +159,20 @@ def compose_take(stats: dict[str, Any], pick: dict[str, Any] | None, learned: di
             f"The live model ({learned.get('model', 'learned')}) is still ahead of the naive baseline in "
             f"walk-forward testing — {wf.get('hit_rate_pct', 0):.0f}% hit rate — so no reason to roll it back."
         )
+
+    if political:
+        if political["ready"]:
+            lean = "did better" if political["diff_pct"] > 0 else "did worse" if political["diff_pct"] < 0 else "performed about the same"
+            parts.append(
+                f"On the Trump/government-news idea: stocks with a mention {lean} than everything else — "
+                f"{political['accuracy_pct']:.0f}% accuracy on {political['n']} graded calls vs. "
+                f"{political['baseline_accuracy_pct']:.0f}% baseline ({political['baseline_n']} calls)."
+            )
+        else:
+            parts.append(
+                f"Still gathering evidence on the Trump/government-news idea — only {political['n']} graded "
+                f"calls with a mention so far, need {political['needed']} before it's worth a real read."
+            )
 
     parts.append(
         "None of this is financial advice — it's one input, checked against reality every day, not a sure thing."
@@ -268,7 +324,8 @@ def main() -> None:
     pick = rec.get("pick")
     learned = scorecard_learned()
     notes = recent_daily_notes()
-    take = compose_take(stats, pick, learned)
+    political = political_signal_check()
+    take = compose_take(stats, pick, learned, political)
 
     pdf_path = build_pdf(stats, pick, take, notes)
     print(f"Wrote {pdf_path}")
