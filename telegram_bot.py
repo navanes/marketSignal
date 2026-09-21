@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import app
+import signal_log
 from universe import UNIVERSE
 
 ROOT = Path(__file__).parent
@@ -49,6 +50,7 @@ HELP_TEXT = (
     "/menu — browse the watch list by category\n"
     "/pick — my top pick across the whole watch list right now\n"
     "/signals — everything I watch, sorted Buy/Hold/Sell by how confident I am\n"
+    "/signalcheck — how my past BUY/SELL calls actually turned out, and what went wrong on the misses\n"
     "/track — how often I've actually been right so far, no sugarcoating\n"
     "/help — this message\n\n"
     "Heads up: this is research, not licensed financial advice — treat me like a "
@@ -508,6 +510,7 @@ def gather_signals() -> dict[str, list[dict[str, Any]]]:
                 "expected_return_pct": anchor["expected_return_pct"],
                 "confidence": anchor["confidence"],
                 "timeframe": timeframe,
+                "prediction_id": anchor["id"],
             })
 
     for items in buckets.values():
@@ -517,6 +520,10 @@ def gather_signals() -> dict[str, list[dict[str, Any]]]:
 
 def format_signals_reply() -> str:
     buckets = gather_signals()
+    try:
+        signal_log.record_signal_calls(buckets)
+    except Exception as exc:
+        print(f"signal_log.record_signal_calls failed: {exc}")
     lines = ["Here's where everything stands right now, most confident first:"]
     for label, emoji in (("BUY", "📈"), ("HOLD", "🤝"), ("SELL", "📉")):
         items = buckets[label][:SIGNALS_PER_BUCKET]
@@ -537,6 +544,47 @@ def format_signals_reply() -> str:
         "confidence word. 'Best' timeframe = every tracked horizon (daily to annual) where the call still "
         "holds up, not just the 30-day one. Not financial advice."
     )
+    return "\n".join(lines)
+
+
+def format_signal_check_reply() -> str:
+    review = signal_log.review_signal_calls()
+    summary = review["summary"]
+    buy, sell = summary["BUY"], summary["SELL"]
+
+    if not buy["n"] and not sell["n"]:
+        return (
+            "Nothing to check yet — I only start grading a /signals call once its 30-day window "
+            "actually comes due. Ask /signals a few times over the coming weeks, then check back here."
+        )
+
+    lines = ["Checking back on what /signals has actually called so far:"]
+    lines.append(
+        f"BUY calls: {buy['correct']}/{buy['n']} right ({buy['accuracy_pct']}%)."
+        if buy["n"] else "BUY calls: none graded yet."
+    )
+    lines.append(
+        f"SELL calls: {sell['correct']}/{sell['n']} right ({sell['accuracy_pct']}%)."
+        if sell["n"] else "SELL calls: none graded yet."
+    )
+
+    wrong = review["wrong"]
+    if wrong:
+        plural = "es" if len(wrong) != 1 else ""
+        lines.append(f"\nWhat went wrong ({len(wrong)} miss{plural}):")
+        for row in wrong[:5]:
+            lines.append("• " + signal_log.format_wrong_call(row))
+        if len(wrong) > 5:
+            lines.append(f"…and {len(wrong) - 5} more.")
+    else:
+        lines.append("\nNo misses yet — small sample though, don't read too much into a clean streak.")
+
+    if review["total_graded"] < signal_log.MIN_REVIEW_SAMPLE:
+        lines.append(
+            f"\n(Only {review['total_graded']} calls graded so far — treat these numbers loosely "
+            f"until there are at least {signal_log.MIN_REVIEW_SAMPLE}.)"
+        )
+
     return "\n".join(lines)
 
 
@@ -647,6 +695,8 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
             send_message(token, chat_id, format_track_reply())
         elif low == "/signals" or _SIGNALS_INTENT.search(low):
             send_message(token, chat_id, format_signals_reply())
+        elif low in ("/signalcheck", "/signalscheck"):
+            send_message(token, chat_id, format_signal_check_reply())
         else:
             query = re.sub(r"^/ask\s+", "", query, flags=re.IGNORECASE)
             query = re.sub(r"^/+", "", query)  # e.g. "/ETH" typed as if it were a command
