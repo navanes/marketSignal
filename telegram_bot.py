@@ -451,37 +451,63 @@ def _signal_bucket(action: str, direction: str) -> str:
     return "HOLD"
 
 
-def gather_signals(horizon_days: int = 30) -> dict[str, list[dict[str, Any]]]:
-    """Every watched symbol's latest call at this horizon, split into
-    BUY/HOLD/SELL and sorted within each by how much real history backs
-    the call up (not just the model's own confidence word)."""
+def _timeframe_span(horizons: list[int]) -> str:
+    horizons = sorted(horizons)
+    short_label = app.HORIZON_LABELS.get(horizons[0], f"{horizons[0]}d")
+    if len(horizons) == 1:
+        return short_label
+    long_label = app.HORIZON_LABELS.get(horizons[-1], f"{horizons[-1]}d")
+    return f"{short_label} to {long_label}"
+
+
+def gather_signals() -> dict[str, list[dict[str, Any]]]:
+    """Every watched symbol's latest 30-day call, split into BUY/HOLD/SELL
+    and sorted within each by how much real history backs the call up (not
+    just the model's own confidence word). For BUY/SELL, also checks every
+    other tracked horizon (1d through 365d) to report the specific
+    timeframe(s) the call actually holds up over, short-term vs long-term."""
     with sqlite3.connect(app.PREDICTIONS_DB) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM predictions WHERE horizon_days = ? ORDER BY created_at DESC",
-            (horizon_days,),
-        ).fetchall()
-        latest: dict[str, sqlite3.Row] = {}
-        for row in rows:  # newest first, so the first one seen per symbol wins
-            if row["symbol"] not in latest:
-                latest[row["symbol"]] = row
+        rows = conn.execute("SELECT * FROM predictions ORDER BY created_at DESC").fetchall()
+
+        # Latest row per (symbol, horizon_days) — newest first, first wins.
+        latest: dict[tuple[str, int], sqlite3.Row] = {}
+        for row in rows:
+            key = (row["symbol"], row["horizon_days"])
+            if key not in latest:
+                latest[key] = row
 
         buckets: dict[str, list[dict[str, Any]]] = {"BUY": [], "HOLD": [], "SELL": []}
-        for symbol, row in latest.items():
-            direction = (row["predicted_direction"] or "sideways").lower()
+        for symbol in sorted({row["symbol"] for row in rows}):
+            anchor = latest.get((symbol, 30))
+            if anchor is None:
+                continue
+            direction = (anchor["predicted_direction"] or "sideways").lower()
             hist = conn.execute(
                 "SELECT COUNT(*) n, SUM(direction_correct) c FROM predictions "
                 "WHERE status='evaluated' AND symbol = ? AND predicted_direction = ?",
                 (symbol, direction),
             ).fetchone()
             chance_pct, _basis = estimate_chance_right(symbol, direction, hist["n"] or 0, hist["c"] or 0)
-            bucket = _signal_bucket(row["action"], direction)
+            bucket = _signal_bucket(anchor["action"], direction)
+
+            timeframe = None
+            if bucket in ("BUY", "SELL"):
+                qualifying = [
+                    h for h in app.HORIZON_LABELS
+                    if (row_h := latest.get((symbol, h))) is not None
+                    and _signal_bucket(row_h["action"], (row_h["predicted_direction"] or "sideways").lower()) == bucket
+                ]
+                if qualifying:
+                    timeframe = _timeframe_span(qualifying)
+
             buckets[bucket].append({
                 "symbol": symbol,
-                "name": row["name"],
+                "name": anchor["name"],
                 "chance_pct": chance_pct,
-                "expected_return_pct": row["expected_return_pct"],
-                "confidence": row["confidence"],
+                "expected_return_pct": anchor["expected_return_pct"],
+                "confidence": anchor["confidence"],
+                "timeframe": timeframe,
             })
 
     for items in buckets.values():
@@ -489,9 +515,9 @@ def gather_signals(horizon_days: int = 30) -> dict[str, list[dict[str, Any]]]:
     return buckets
 
 
-def format_signals_reply(horizon_days: int = 30) -> str:
-    buckets = gather_signals(horizon_days)
-    lines = ["Here's where everything stands right now (30-day view), most confident first:"]
+def format_signals_reply() -> str:
+    buckets = gather_signals()
+    lines = ["Here's where everything stands right now, most confident first:"]
     for label, emoji in (("BUY", "📈"), ("HOLD", "🤝"), ("SELL", "📉")):
         items = buckets[label][:SIGNALS_PER_BUCKET]
         lines.append(f"\n{emoji} {label} ({len(buckets[label])})")
@@ -499,15 +525,17 @@ def format_signals_reply(horizon_days: int = 30) -> str:
             lines.append("  nothing here right now")
         else:
             for item in items:
+                tf_phrase = f", best {item['timeframe']}" if item.get("timeframe") else ""
                 lines.append(
-                    f"  {item['symbol']} — {item['chance_pct']}% confident "
+                    f"  {item['symbol']} — {item['chance_pct']}% confident{tf_phrase} "
                     f"({fmt_pct(item['expected_return_pct'])})"
                 )
         if len(buckets[label]) > SIGNALS_PER_BUCKET:
             lines.append(f"  …and {len(buckets[label]) - SIGNALS_PER_BUCKET} more")
     lines.append(
         "\nConfidence = blended real accuracy (live results + 5-year backtest), not just the model's own "
-        "confidence word. Not financial advice."
+        "confidence word. 'Best' timeframe = every tracked horizon (daily to annual) where the call still "
+        "holds up, not just the 30-day one. Not financial advice."
     )
     return "\n".join(lines)
 
