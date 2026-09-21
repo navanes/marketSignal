@@ -83,17 +83,6 @@ def check_and_send() -> int:
         if last_alerted and (today - dt.date.fromisoformat(last_alerted)).days < COOLDOWN_DAYS:
             continue
 
-        with sqlite3.connect(app.PREDICTIONS_DB) as conn:
-            conn.row_factory = sqlite3.Row
-            hist = conn.execute(
-                "SELECT COUNT(*) n, SUM(direction_correct) c FROM predictions "
-                "WHERE status='evaluated' AND symbol = ?",
-                (symbol,),
-            ).fetchone()
-        chance_pct, chance_basis = tb.estimate_chance_right(symbol, hist["n"] or 0, hist["c"] or 0)
-        if chance_pct < MIN_CHANCE_PCT:
-            continue
-
         qualifying = [
             row for row in rows
             if row["action"] in QUALIFYING_ACTIONS
@@ -107,6 +96,21 @@ def check_and_send() -> int:
         if not qualifying:
             continue
         qualifying.sort(key=lambda r: r["horizon_days"])
+
+        # All qualifying rows are "up" calls (expected_return_pct > 0 was
+        # just required above) — use that direction's real accuracy, not a
+        # symbol-wide number that's usually dominated by sideways calls.
+        direction = (qualifying[0]["predicted_direction"] or "up").lower()
+        with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+            conn.row_factory = sqlite3.Row
+            hist = conn.execute(
+                "SELECT COUNT(*) n, SUM(direction_correct) c FROM predictions "
+                "WHERE status='evaluated' AND symbol = ? AND predicted_direction = ?",
+                (symbol, direction),
+            ).fetchone()
+        chance_pct, chance_basis = tb.estimate_chance_right(symbol, direction, hist["n"] or 0, hist["c"] or 0)
+        if chance_pct < MIN_CHANCE_PCT:
+            continue
 
         name = rows[0]["name"]
         price = rows[0]["start_price"]

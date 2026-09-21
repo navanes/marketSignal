@@ -48,6 +48,7 @@ HELP_TEXT = (
     "Commands:\n"
     "/menu — browse the watch list by category\n"
     "/pick — my top pick across the whole watch list right now\n"
+    "/signals — everything I watch, sorted Buy/Hold/Sell by how confident I am\n"
     "/track — how often I've actually been right so far, no sugarcoating\n"
     "/help — this message\n\n"
     "Heads up: this is research, not licensed financial advice — treat me like a "
@@ -242,27 +243,33 @@ def _scorecard_years() -> int | None:
         return None
 
 
-def estimate_chance_right(symbol: str, live_n: int, live_correct: int) -> tuple[int, str]:
-    """Rough % chance this specific call is right, blending this symbol's
-    live graded track record with its 5-year backtest accuracy — the same
-    method the dashboard's 'today's pick' uses. Returns (pct, basis note)."""
-    backtest_acc: dict[str, float] = {}
+def estimate_chance_right(symbol: str, direction: str, live_n: int, live_correct: int) -> tuple[int, str]:
+    """Rough % chance THIS call is right, blending this symbol's live graded
+    track record for THIS DIRECTION with the backtest's accuracy for calls
+    of this direction. Direction matters more than symbol alone here — the
+    5yr backtest shows up-calls right ~61% of the time but sideways calls
+    only ~30%, so a symbol's overall hit rate (dominated by whichever
+    direction it's called most) would misrepresent how reliable this
+    specific call is. live_n/live_correct must already be filtered to this
+    symbol+direction by the caller. Returns (pct, basis note)."""
+    backtest_by_direction: dict[str, float] = {}
     try:
-        backtest_acc = json.loads((app.DATA_DIR / "scorecard.json").read_text()).get("by_symbol_all") or {}
+        rows = json.loads((app.DATA_DIR / "scorecard.json").read_text()).get("by_direction") or []
+        backtest_by_direction = {r["predicted_direction"]: r["accuracy_pct"] for r in rows if r.get("predicted_direction")}
     except Exception:
         pass
-    bt = backtest_acc.get(symbol)
+    bt = backtest_by_direction.get(direction)
 
     if live_n >= 5:
         live_rate = live_correct / live_n
         blended = 0.7 * live_rate + 0.3 * ((bt / 100.0) if bt is not None else live_rate)
-        basis = f"blend of {live_n} real checks on {symbol} and its 5-year backtest"
+        basis = f"blend of {live_n} real {direction} calls on {symbol} and the {direction}-call backtest"
     elif bt is not None:
         blended = bt / 100.0
-        basis = f"{symbol}'s 5-year backtest (not enough live checks yet)"
+        basis = f"the {direction}-call backtest ({bt:.0f}% historically) — not enough live {direction} checks on {symbol} yet"
     else:
         blended = 0.5
-        basis = "a coin-flip baseline (no history on this one yet)"
+        basis = "a coin-flip baseline (no history for this yet)"
     return round(blended * 100), basis
 
 
@@ -304,7 +311,14 @@ def format_research_reply(query: str) -> str:
 
     price_phrase = f"It's at {price} {currency} right now.".strip() if price else ""
 
-    chance_pct, chance_basis = estimate_chance_right(symbol, row["n"] or 0, row["c"] or 0)
+    with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        dir_row = conn.execute(
+            "SELECT COUNT(*) n, SUM(direction_correct) c FROM predictions "
+            "WHERE status='evaluated' AND symbol = ? AND predicted_direction = ?",
+            (symbol, direction),
+        ).fetchone()
+    chance_pct, chance_basis = estimate_chance_right(symbol, direction, dir_row["n"] or 0, dir_row["c"] or 0)
     confidence_talk = _CONFIDENCE_TALK.get(fc.get("confidence", ""), "")
 
     opener = random.choice(_OPENERS.get(verdict, _OPENERS["WAIT"])).format(sym=symbol)
@@ -373,7 +387,7 @@ def format_pick_reply(bucket: str | None = None) -> str:
 
     checks = pick.get("checks", 0) or 0
     correct = round(checks * (pick.get("accuracy_pct") or 0) / 100)
-    chance_pct, chance_basis = estimate_chance_right(pick["symbol"], checks, correct)
+    chance_pct, chance_basis = estimate_chance_right(pick["symbol"], pick["direction"], checks, correct)
     confidence_talk = _CONFIDENCE_TALK.get(pick.get("confidence", ""), "")
 
     scope = f"the {category_phrase.strip()} I watch" if bucket else "everything I watch"
@@ -418,6 +432,87 @@ def format_top_picks(n: int, bucket: str | None = None) -> str:
     lines.append(random.choice(_CLOSERS))
     return "\n".join(lines)
 
+
+_BUY_ACTIONS = {"Strong Buy / Accumulate", "Buy / Accumulate"}
+_SELL_ACTIONS = {"Strong Avoid / Reduce", "Avoid / Consider Reducing"}
+SIGNALS_PER_BUCKET = 10
+
+
+def _signal_bucket(action: str, direction: str) -> str:
+    """BUY/SELL only when the action label and the forecast direction
+    actually agree (they come from different parts of the pipeline and can
+    disagree — a 'Sell' action can pair with an 'up' forecast). Anything
+    that doesn't cleanly agree lands in HOLD rather than showing a
+    confidence number that belongs to a different direction."""
+    if action in _BUY_ACTIONS and direction == "up":
+        return "BUY"
+    if action in _SELL_ACTIONS and direction == "down":
+        return "SELL"
+    return "HOLD"
+
+
+def gather_signals(horizon_days: int = 30) -> dict[str, list[dict[str, Any]]]:
+    """Every watched symbol's latest call at this horizon, split into
+    BUY/HOLD/SELL and sorted within each by how much real history backs
+    the call up (not just the model's own confidence word)."""
+    with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM predictions WHERE horizon_days = ? ORDER BY created_at DESC",
+            (horizon_days,),
+        ).fetchall()
+        latest: dict[str, sqlite3.Row] = {}
+        for row in rows:  # newest first, so the first one seen per symbol wins
+            if row["symbol"] not in latest:
+                latest[row["symbol"]] = row
+
+        buckets: dict[str, list[dict[str, Any]]] = {"BUY": [], "HOLD": [], "SELL": []}
+        for symbol, row in latest.items():
+            direction = (row["predicted_direction"] or "sideways").lower()
+            hist = conn.execute(
+                "SELECT COUNT(*) n, SUM(direction_correct) c FROM predictions "
+                "WHERE status='evaluated' AND symbol = ? AND predicted_direction = ?",
+                (symbol, direction),
+            ).fetchone()
+            chance_pct, _basis = estimate_chance_right(symbol, direction, hist["n"] or 0, hist["c"] or 0)
+            bucket = _signal_bucket(row["action"], direction)
+            buckets[bucket].append({
+                "symbol": symbol,
+                "name": row["name"],
+                "chance_pct": chance_pct,
+                "expected_return_pct": row["expected_return_pct"],
+                "confidence": row["confidence"],
+            })
+
+    for items in buckets.values():
+        items.sort(key=lambda item: item["chance_pct"], reverse=True)
+    return buckets
+
+
+def format_signals_reply(horizon_days: int = 30) -> str:
+    buckets = gather_signals(horizon_days)
+    lines = ["Here's where everything stands right now (30-day view), most confident first:"]
+    for label, emoji in (("BUY", "📈"), ("HOLD", "🤝"), ("SELL", "📉")):
+        items = buckets[label][:SIGNALS_PER_BUCKET]
+        lines.append(f"\n{emoji} {label} ({len(buckets[label])})")
+        if not items:
+            lines.append("  nothing here right now")
+        else:
+            for item in items:
+                lines.append(
+                    f"  {item['symbol']} — {item['chance_pct']}% confident "
+                    f"({fmt_pct(item['expected_return_pct'])})"
+                )
+        if len(buckets[label]) > SIGNALS_PER_BUCKET:
+            lines.append(f"  …and {len(buckets[label]) - SIGNALS_PER_BUCKET} more")
+    lines.append(
+        "\nConfidence = blended real accuracy (live results + 5-year backtest), not just the model's own "
+        "confidence word. Not financial advice."
+    )
+    return "\n".join(lines)
+
+
+_SIGNALS_INTENT = re.compile(r"\bsignals?\b", re.IGNORECASE)
 
 _RECOMMEND_INTENT = re.compile(
     r"\b(hot|hottest|recommend\w*|suggest\w*|best|top\s*\d*|what should i (buy|invest|get)|"
@@ -522,6 +617,8 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
             send_message(token, chat_id, format_pick_reply())
         elif low == "/track":
             send_message(token, chat_id, format_track_reply())
+        elif low == "/signals" or _SIGNALS_INTENT.search(low):
+            send_message(token, chat_id, format_signals_reply())
         else:
             query = re.sub(r"^/ask\s+", "", query, flags=re.IGNORECASE)
             query = re.sub(r"^/+", "", query)  # e.g. "/ETH" typed as if it were a command

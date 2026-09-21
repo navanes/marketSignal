@@ -1246,21 +1246,30 @@ def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
             "note": "No predictions logged yet — run research on a few markets first.",
         }
 
-    record: dict[str, dict[str, Any]] = {}
+    # Keyed by (symbol, direction) rather than symbol alone — up/down/sideways
+    # calls have very different real-world reliability (up-calls are right
+    # ~61% of the time in the backtest, sideways only ~30%), so a symbol's
+    # overall hit rate is dominated by whichever direction it's called most
+    # often and misrepresents how reliable THIS call actually is.
+    record: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         if row["status"] != "evaluated":
             continue
-        rec = record.setdefault(row["symbol"], {"n": 0, "correct": 0, "errors": []})
+        key = (row["symbol"], (row.get("predicted_direction") or "sideways").lower())
+        rec = record.setdefault(key, {"n": 0, "correct": 0, "errors": []})
         rec["n"] += 1
         rec["correct"] += 1 if row.get("direction_correct") else 0
         if row.get("target_error_pct") is not None:
             rec["errors"].append(abs(row["target_error_pct"]))
 
-    # Per-symbol accuracy from the walk-forward backtest — a prior for symbols
-    # the live log hasn't graded much yet.
-    backtest_acc: dict[str, float] = {}
+    # Per-direction accuracy from the walk-forward backtest — a prior for
+    # (symbol, direction) pairs the live log hasn't graded much yet.
+    backtest_by_direction: dict[str, float] = {}
     try:
-        backtest_acc = json.loads((DATA_DIR / "scorecard.json").read_text()).get("by_symbol_all") or {}
+        rows_bd = json.loads((DATA_DIR / "scorecard.json").read_text()).get("by_direction") or []
+        backtest_by_direction = {
+            r["predicted_direction"]: r["accuracy_pct"] for r in rows_bd if r.get("predicted_direction")
+        }
     except Exception:
         pass
 
@@ -1276,18 +1285,19 @@ def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
 
     scored: list[dict[str, Any]] = []
     for symbol, row in latest.items():
-        rec = record.get(symbol, {"n": 0, "correct": 0, "errors": []})
+        direction = (row.get("predicted_direction") or "sideways").lower()
+        rec = record.get((symbol, direction), {"n": 0, "correct": 0, "errors": []})
         hit_rate = (rec["correct"] / rec["n"]) if rec["n"] else None
-        # Reliability = live hit rate once there's enough of it, otherwise lean on
-        # the backtest's per-symbol accuracy, otherwise a coin flip.
-        bt = backtest_acc.get(symbol)
+        # Reliability = live hit rate on THIS symbol's THIS-direction calls
+        # once there's enough of it, otherwise lean on how reliable calls of
+        # this direction have been in the backtest generally, else a coin flip.
+        bt = backtest_by_direction.get(direction)
         if hit_rate is not None and rec["n"] >= 5:
             reliability = 0.7 * hit_rate + 0.3 * ((bt / 100.0) if bt is not None else hit_rate)
         elif bt is not None:
             reliability = bt / 100.0
         else:
             reliability = 0.5
-        direction = (row.get("predicted_direction") or "sideways").lower()
         exp = row.get("expected_return_pct")
         conf = (row.get("confidence") or "").lower()
         conf_weight = _CONFIDENCE_WEIGHT.get(conf, 0.4)
@@ -1339,7 +1349,7 @@ def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
             bits.append(f"{item['confidence']} confidence")
         if item["accuracy_pct"] is not None:
             unit = "check" if item["checks"] == 1 else "checks"
-            bits.append(f"right {item['accuracy_pct']:.0f}% on {item['symbol']} ({item['checks']} {unit})")
+            bits.append(f"right {item['accuracy_pct']:.0f}% on {item['symbol']} {item['direction']}-calls ({item['checks']} {unit})")
         else:
             bits.append(f"no graded history on {item['symbol']} yet")
         return " · ".join(bits)
@@ -1355,7 +1365,7 @@ def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
             "expected_return_pct": item["expected_return_pct"],
             "horizon_days": item["horizon_days"],
             "confidence": item["confidence"],
-            "accuracy_pct": item["accuracy_pct"] if item["accuracy_pct"] is not None else backtest_acc.get(item["symbol"]),
+            "accuracy_pct": item["accuracy_pct"] if item["accuracy_pct"] is not None else backtest_by_direction.get(item["direction"]),
         }
         for item in scored[:8]
     ]
