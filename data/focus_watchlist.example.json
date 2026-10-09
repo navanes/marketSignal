@@ -1,0 +1,8 @@
+{
+  "symbols": [
+    "BTC-USD",
+    "ETH-USD"
+  ],
+  "notes": "Copy this file to data/focus_watchlist.json and replace the example symbols with the assets you own or want watched. This private file is intentionally ignored by Git.",
+  "news_alerts_enabled": false
+}

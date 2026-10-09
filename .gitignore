@@ -15,4 +15,5 @@ data/model_rejected.json
 data/.telegram_bot_state.json
 data/alert_state.json
 data/weekly_reports/
+data/focus_watchlist.json
 deploy/_retrain_runner.sh

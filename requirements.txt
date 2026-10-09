@@ -1,0 +1,3 @@
+# MarketSignal uses the Python standard library for research and data pulls.
+# fpdf2 is required only for the scheduled weekly PDF report.
+fpdf2>=2.8,<3

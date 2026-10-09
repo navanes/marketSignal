@@ -10,6 +10,7 @@ Run:  python3 weekly_report.py
 from __future__ import annotations
 
 import datetime as dt
+import concurrent.futures
 import json
 import os
 import sqlite3
@@ -25,6 +26,70 @@ import telegram_bot as tb
 
 ROOT = Path(__file__).parent
 REPORTS_DIR = ROOT / "data" / "weekly_reports"
+FOCUS_WATCHLIST_PATH = ROOT / "data" / "focus_watchlist.json"
+
+# A liquid, diversified core set for the Friday report. Private focus symbols
+# are promoted into this set (up to 30 total) when configured by the owner.
+WEEKLY_REPORT_SYMBOLS = [
+    "BTC-USD", "ETH-USD", "XRP-USD", "BNB-USD", "SOL-USD", "DOGE-USD",
+    "TRX-USD", "ADA-USD", "AVAX-USD", "LINK-USD", "XLM-USD", "LTC-USD",
+    "BCH-USD", "SHIB-USD", "XMR-USD", "NVDA", "MSFT", "AVGO", "GOOGL",
+    "META", "AMZN", "ORCL", "AMD", "VRT", "CEG", "GEV", "TLN", "VST",
+    "SPY", "QQQ",
+]
+WEEKLY_HORIZONS = [7, 30, 90, 180, 365]
+
+
+def focus_symbols() -> list[str]:
+    """Load the owner's private symbols without ever putting them in Git."""
+    try:
+        data = json.loads(FOCUS_WATCHLIST_PATH.read_text())
+    except (OSError, ValueError):
+        return []
+    symbols = data.get("symbols") if isinstance(data, dict) else []
+    return [str(symbol).strip().upper() for symbol in symbols or [] if str(symbol).strip()]
+
+
+def weekly_outlook() -> list[dict[str, Any]]:
+    """Fresh five-horizon scenarios for the Friday report.
+
+    ``multi_horizon_signals`` fetches a symbol's chart and headlines only once
+    and does not create artificial prediction-log rows just for rendering a
+    report. Failed individual sources are retained as an error row rather than
+    preventing delivery of the whole report.
+    """
+    focus = focus_symbols()
+    symbols = list(dict.fromkeys(focus + WEEKLY_REPORT_SYMBOLS))[:30]
+
+    def collect(symbol: str) -> dict[str, Any]:
+        try:
+            row = app.multi_horizon_signals(symbol, "6mo", WEEKLY_HORIZONS)
+            row["focus"] = symbol in focus
+            return row
+        except Exception as exc:
+            return {"symbol": symbol, "name": symbol, "focus": symbol in focus, "error": str(exc), "horizons": []}
+
+    # Keep this bounded: Yahoo and Google News are public endpoints, and five
+    # workers makes the Friday report fast without hammering either source.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        return list(executor.map(collect, symbols))
+
+
+def _outlook_line(row: dict[str, Any]) -> str:
+    if row.get("error"):
+        return f"{row['symbol']}: temporary data error - no scenario shown."
+    by_horizon = {int(item.get("horizon_days", 0)): item for item in row.get("horizons", [])}
+    bits = []
+    for days, label in zip(WEEKLY_HORIZONS, ("1w", "1m", "3m", "6m", "1y")):
+        signal = by_horizon.get(days, {})
+        direction = (signal.get("direction") or "n/a").upper()
+        expected = signal.get("expected_return_pct")
+        estimate = f" {expected:+.1f}%" if isinstance(expected, (int, float)) else ""
+        bits.append(f"{label} {direction}{estimate}")
+    mark = "* " if row.get("focus") else ""
+    price = row.get("price")
+    price_text = f" (${price:,.4f})" if isinstance(price, (int, float)) and price < 1 else (f" (${price:,.2f})" if isinstance(price, (int, float)) else "")
+    return f"{mark}{row.get('symbol', '?')}{price_text}: " + " | ".join(bits)
 
 
 def week_stats() -> dict[str, Any]:
@@ -191,7 +256,10 @@ def _ascii(text: str) -> str:
     return text.encode("latin-1", "replace").decode("latin-1")
 
 
-def build_pdf(stats: dict[str, Any], pick: dict[str, Any] | None, take: str, notes: list[dict[str, Any]]) -> Path:
+def build_pdf(
+    stats: dict[str, Any], pick: dict[str, Any] | None, take: str,
+    notes: list[dict[str, Any]], outlook: list[dict[str, Any]],
+) -> Path:
     today = dt.date.today()
     week_start = today - dt.timedelta(days=7)
 
@@ -268,6 +336,24 @@ def build_pdf(stats: dict[str, Any], pick: dict[str, Any] | None, take: str, not
                 pdf.multi_cell(0, 5, f"  - {note}")
         pdf.ln(2)
 
+    # Keep the detailed market scenarios on their own pages. It makes the
+    # report useful as a Friday research brief without burying the weekly
+    # model-review section above. Focus symbols appear first and get a '*'.
+    if outlook:
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 15)
+        pdf.cell(0, 9, "Five-horizon market scenarios")
+        pdf.set_font("Helvetica", "", 9)
+        pdf.multi_cell(
+            0, 5,
+            "* = your private focus watchlist. UP/DOWN/SIDEWAYS and the percentage are model scenarios, not trade instructions, price targets, or probabilities. "
+            "Six-month and one-year estimates can overlap when the current model places both horizons in the same learned regime; they are not independent forecasts.",
+        )
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "", 8)
+        for row in sorted(outlook, key=lambda item: (not item.get("focus"), item.get("symbol", ""))):
+            pdf.multi_cell(0, 4.5, _outlook_line(row))
+
     pdf.set_font("Helvetica", "I", 9)
     pdf.set_text_color(120, 120, 120)
     pdf.multi_cell(0, 5, "Research only, not financial advice. Generated automatically from graded prediction history.")
@@ -327,7 +413,8 @@ def main() -> None:
     political = political_signal_check()
     take = compose_take(stats, pick, learned, political)
 
-    pdf_path = build_pdf(stats, pick, take, notes)
+    outlook = weekly_outlook()
+    pdf_path = build_pdf(stats, pick, take, notes, outlook)
     print(f"Wrote {pdf_path}")
 
     send_document(token, chat_id, pdf_path, "Your MarketSignal weekly report is here.")
