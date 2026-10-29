@@ -7,13 +7,13 @@
 #   ./deploy/scan.sh status      # loaded? last run? recent output
 #   ./deploy/scan.sh logs        # tail the scan log
 #
-# Runs scan.py every night at 18:35 local time (after the US close) so the
+# Runs scan.py every night at 18:30 local time (after the US close) so the
 # prediction track record compounds on its own. No secrets in the plist.
 set -euo pipefail
 
 LABEL="com.marketsignal.scan"
 HOUR=18
-MINUTE=35
+MINUTE=30
 
 SCRIPT_DIR="${0:A:h}"
 PROJECT_DIR="${SCRIPT_DIR:h}"

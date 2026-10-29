@@ -60,9 +60,19 @@ UNIVERSE: list[tuple[str, str, str]] = [
     ("QQQ", "Nasdaq 100", "etf"),
     ("IWM", "Russell 2000", "etf"),
     ("DIA", "Dow 30", "etf"),
-    # Crypto
+    # Crypto — the ten liquid, non-stablecoin assets the bot can compare.
+    # Stablecoins are intentionally excluded: a directional price model is not
+    # meaningful for an asset designed to remain near one dollar.
     ("BTC-USD", "Bitcoin", "crypto"),
     ("ETH-USD", "Ethereum", "crypto"),
+    ("XRP-USD", "XRP", "crypto"),
+    ("BNB-USD", "BNB", "crypto"),
+    ("SOL-USD", "Solana", "crypto"),
+    ("DOGE-USD", "Dogecoin", "crypto"),
+    ("TRX-USD", "TRON", "crypto"),
+    ("ADA-USD", "Cardano", "crypto"),
+    ("AVAX-USD", "Avalanche", "crypto"),
+    ("LINK-USD", "Chainlink", "crypto"),
 ]
 
 SYMBOLS: list[str] = [row[0] for row in UNIVERSE]

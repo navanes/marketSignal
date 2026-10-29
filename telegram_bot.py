@@ -50,6 +50,7 @@ HELP_TEXT = (
     "/menu — browse the watch list by category\n"
     "/pick — my top pick across the whole watch list right now\n"
     "/signals — everything I watch, sorted Buy/Hold/Sell by how confident I am\n"
+    "/market — market-and-crypto briefing: scan prices, news pulse, and top model setups\n"
     "/signalcheck — how my past BUY/SELL calls actually turned out, and what went wrong on the misses\n"
     "/track — how often I've actually been right so far, no sugarcoating\n"
     "/help — this message\n\n"
@@ -435,6 +436,87 @@ def format_top_picks(n: int, bucket: str | None = None) -> str:
     return "\n".join(lines)
 
 
+def _fmt_price(value: Any, currency: str = "USD") -> str:
+    """Compact, scan-price formatting for a Telegram market brief."""
+    if not isinstance(value, (int, float)):
+        return "n/a"
+    prefix = "$" if currency == "USD" else f"{currency} "
+    if abs(value) >= 1000:
+        return f"{prefix}{value:,.0f}"
+    if abs(value) >= 1:
+        return f"{prefix}{value:,.2f}"
+    return f"{prefix}{value:,.4f}"
+
+
+def _briefing_rows(items: list[dict[str, Any]], limit: int = 10) -> list[str]:
+    rows: list[str] = []
+    for item in items[:limit]:
+        arrow = {"up": "↑", "down": "↓"}.get(item.get("direction"), "→")
+        move = fmt_pct(item.get("expected_return_pct"))
+        horizon = item.get("horizon_days") or 30
+        rows.append(
+            f"{item['symbol']} {_fmt_price(item.get('start_price'))} {arrow} "
+            f"{move}/{horizon}d ({item.get('confidence') or 'n/a'})"
+        )
+    return rows
+
+
+def _news_pulse(query: str) -> str | None:
+    """Add fresh context without making a broad brief fetch news for every symbol."""
+    try:
+        stories = app.google_news(query, limit=1)
+    except Exception:
+        return None
+    if not stories:
+        return None
+    title = str(stories[0].get("title") or "").strip()
+    return title or None
+
+
+def format_market_briefing() -> list[str]:
+    """Two concise responses to natural-language market overview questions.
+
+    The rates and forecasts are explicitly the latest nightly scan values;
+    this avoids pretending that twenty instruments were priced simultaneously.
+    The two news pulses are fetched when the user asks.
+    """
+    crypto_symbols = [symbol for symbol, _label in SYMBOLS_BY_BUCKET["crypto"]]
+    stock_symbols = [symbol for symbol, _label, bucket in UNIVERSE if bucket != "crypto"]
+    markets = app.buy_recommendation(symbols=stock_symbols)
+    cryptos = app.buy_recommendation(symbols=crypto_symbols)
+    market_rows = markets.get("ranked") or []
+    crypto_rows = cryptos.get("ranked") or []
+    scanned_at = next(
+        (item.get("forecast_at") for item in market_rows + crypto_rows if item.get("forecast_at")),
+        "the latest scan",
+    )
+
+    market_lines = [
+        f"📊 Market Signal briefing — latest model scan: {scanned_at}",
+        "Prices are scan prices; arrows are the model's 30-day direction/expected move.",
+    ]
+    if pulse := _news_pulse("US stock market"):
+        market_lines.append(f"News pulse: {pulse}")
+    market_lines.extend(["", "Top 10 tracked market setups:"])
+    market_lines.extend(_briefing_rows(market_rows) or ["No completed market scan yet."])
+    market_lines.append("These are ranked research setups, not instructions to buy.")
+
+    crypto_lines = ["₿ Crypto snapshot — latest model scan"]
+    if pulse := _news_pulse("cryptocurrency market"):
+        crypto_lines.append(f"News pulse: {pulse}")
+    crypto_lines.extend(["", "Top tracked crypto setups:"])
+    crypto_lines.extend(_briefing_rows(crypto_rows) or ["No completed crypto scan yet."])
+    if len(crypto_rows) < len(crypto_symbols):
+        crypto_lines.append(
+            f"{len(crypto_rows)}/{len(crypto_symbols)} crypto forecasts are available now; "
+            "the new watch-list coins enter after the next nightly scan."
+        )
+    crypto_lines.append(
+        "Simple read: favor only the highest-confidence upside setups; keep crypto sizing small and avoid chasing a single move. Not financial advice."
+    )
+    return ["\n".join(market_lines), "\n".join(crypto_lines)]
+
+
 _BUY_ACTIONS = {"Strong Buy / Accumulate", "Buy / Accumulate"}
 _SELL_ACTIONS = {"Strong Avoid / Reduce", "Avoid / Consider Reducing"}
 SIGNALS_PER_BUCKET = 10
@@ -590,6 +672,15 @@ def format_signal_check_reply() -> str:
 
 _SIGNALS_INTENT = re.compile(r"\bsignals?\b", re.IGNORECASE)
 
+_MARKET_BRIEFING_INTENT = re.compile(
+    r"\b(any news|market (?:news|update|brief|overview|snapshot|project)|"
+    r"how(?:'s| is) (?:the )?(?:market|market project|crypto)|"
+    r"what(?:'s| is) (?:going on|happening) (?:with|in) (?:the )?(?:market|crypto)|"
+    r"which (?:coin|coins|crypto|cryptos).*(?:doing|do|should)|"
+    r"(?:coin|coins|crypto|cryptos).*(?:doing|update|news|market))\b",
+    re.IGNORECASE,
+)
+
 _RECOMMEND_INTENT = re.compile(
     r"\b(hot|hottest|recommend\w*|suggest\w*|best|top\s*\d*|what should i (buy|invest|get)|"
     r"which (one|ones|market|markets|stock|stocks|coin|coins|crypto|cryptos)|"
@@ -610,6 +701,10 @@ _COUNT_RE = re.compile(
 
 def looks_like_recommend_request(text: str) -> bool:
     return bool(_RECOMMEND_INTENT.search(text))
+
+
+def looks_like_market_briefing_request(text: str) -> bool:
+    return bool(_MARKET_BRIEFING_INTENT.search(text))
 
 
 def extract_count(text: str) -> int | None:
@@ -695,13 +790,18 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
             send_message(token, chat_id, format_track_reply())
         elif low == "/signals" or _SIGNALS_INTENT.search(low):
             send_message(token, chat_id, format_signals_reply())
+        elif low in ("/market", "/brief", "/briefing"):
+            for message in format_market_briefing():
+                send_message(token, chat_id, message)
         elif low in ("/signalcheck", "/signalscheck"):
             send_message(token, chat_id, format_signal_check_reply())
         else:
             query = re.sub(r"^/ask\s+", "", query, flags=re.IGNORECASE)
             query = re.sub(r"^/+", "", query)  # e.g. "/ETH" typed as if it were a command
-            known = extract_known_symbol(query)
-            if known:
+            if looks_like_market_briefing_request(query):
+                for message in format_market_briefing():
+                    send_message(token, chat_id, message)
+            elif known := extract_known_symbol(query):
                 send_message(token, chat_id, format_research_reply(known))
             elif looks_like_recommend_request(query):
                 count = extract_count(query)

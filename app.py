@@ -86,6 +86,22 @@ def normalize_symbol(query: str) -> str:
         "BTC": "BTC-USD",
         "ETHEREUM": "ETH-USD",
         "ETH": "ETH-USD",
+        "RIPPLE": "XRP-USD",
+        "XRP": "XRP-USD",
+        "BINANCE COIN": "BNB-USD",
+        "BNB": "BNB-USD",
+        "SOLANA": "SOL-USD",
+        "SOL": "SOL-USD",
+        "DOGECOIN": "DOGE-USD",
+        "DOGE": "DOGE-USD",
+        "TRON": "TRX-USD",
+        "TRX": "TRX-USD",
+        "CARDANO": "ADA-USD",
+        "ADA": "ADA-USD",
+        "AVALANCHE": "AVAX-USD",
+        "AVAX": "AVAX-USD",
+        "CHAINLINK": "LINK-USD",
+        "LINK": "LINK-USD",
     }
     return aliases.get(symbol, symbol)
 
@@ -1315,6 +1331,7 @@ def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
         scored.append({
             "symbol": symbol,
             "name": row.get("name") or symbol,
+            "start_price": row.get("start_price"),
             "direction": direction,
             "expected_return_pct": exp if isinstance(exp, (int, float)) else None,
             "confidence": row.get("confidence"),
@@ -1361,13 +1378,16 @@ def buy_recommendation(symbols: list[str] | None = None) -> dict[str, Any]:
     ranked = [
         {
             "symbol": item["symbol"],
+            "name": item["name"],
+            "start_price": item["start_price"],
             "direction": item["direction"],
             "expected_return_pct": item["expected_return_pct"],
             "horizon_days": item["horizon_days"],
             "confidence": item["confidence"],
             "accuracy_pct": item["accuracy_pct"] if item["accuracy_pct"] is not None else backtest_by_direction.get(item["direction"]),
+            "forecast_at": item["forecast_at"],
         }
-        for item in scored[:8]
+        for item in scored[:10]
     ]
 
     for item in (pick, runner_up):

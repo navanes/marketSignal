@@ -26,7 +26,11 @@ _CACHE_TTL = 60 * 60 * 12
 
 # Symbols with no meaningful single-name fundamentals.
 SKIP_PREFIXES = ("^",)
-SKIP = {"SPY", "QQQ", "IWM", "DIA", "BTC-USD", "ETH-USD", "XRP-USD"}
+SKIP = {
+    "SPY", "QQQ", "IWM", "DIA",
+    "BTC-USD", "ETH-USD", "XRP-USD", "BNB-USD", "SOL-USD", "DOGE-USD",
+    "TRX-USD", "ADA-USD", "AVAX-USD", "LINK-USD",
+}
 
 
 def _auth() -> tuple[Any, str] | tuple[None, None]:
