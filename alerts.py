@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import app
+import signal_log
 import telegram_bot as tb
 
 ROOT = Path(__file__).parent
@@ -133,12 +134,19 @@ def check_and_send() -> int:
         else:
             span_note = " Clears the bar on both short and long timeframes."
 
+        try:
+            caveat = signal_log.live_accuracy_caveat()
+        except Exception as exc:
+            print(f"live_accuracy_caveat failed: {exc}")
+            caveat = ""
+
         message = (
             f"Hey — this looks like a moment for {symbol} ({name}). 📈{price_phrase}\n\n"
             f"Clears the bar on:\n{timeframe_lines}\n"
             f"{span_note}\n\n"
             f"Chance this call is right: about {chance_pct}%, going off {chance_basis}.\n\n"
             f"Not a promise — just flagging it because it cleared a real bar tonight, not a hunch."
+            + (f"\n\n{caveat}" if caveat else "")
         )
         tb.send_message(token, chat_id, message)
         state[symbol] = today.isoformat()

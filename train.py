@@ -200,17 +200,80 @@ def best_band_k(rows: list[dict], predict) -> float:
     return max(BAND_KS, key=lambda k: _objective(score(rows, predict, k)))
 
 
+LIVE_SANITY_MIN_N = 200  # need this many graded live calls before trusting live stats over the backtest
+
+
+def live_champion_score(model_name: str) -> dict | None:
+    """What the deployed champion has *actually* scored in production, judged
+    the same +1/-1/0 way as score() — using real graded predictions, not a
+    historical walk-forward fold. This is the reality check: a champion
+    trained on a favorable historical stretch can report a walk-forward hit
+    rate that production never comes close to, and if nothing catches that,
+    the inflated self-report becomes an un-beatable bar forever (no challenger
+    can clear it, so the model never actually improves from new data)."""
+    import sqlite3
+    with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+        rows = conn.execute(
+            "SELECT predicted_direction, actual_change_pct FROM predictions "
+            "WHERE model = ? AND status = 'evaluated' AND actual_change_pct IS NOT NULL",
+            (model_name,),
+        ).fetchall()
+    if len(rows) < LIVE_SANITY_MIN_N:
+        return None
+    pnls: list[float] = []
+    nonflat = correct = total_dir = 0
+    for pdir, move in rows:
+        pos = {"up": 1.0, "down": -1.0}.get(pdir, 0.0)
+        pnls.append(pos * move)
+        if pdir != "sideways":
+            nonflat += 1
+        if pdir in ("up", "down"):
+            total_dir += 1
+            correct += (pdir == "up" and move > 0) or (pdir == "down" and move < 0)
+    n = len(pnls)
+    mean = sum(pnls) / n
+    sd = (sum((p - mean) ** 2 for p in pnls) / n) ** 0.5
+    return {
+        "n": n,
+        "mean_pnl_pct": round(mean, 3),
+        "sharpe_like": round(mean / sd, 3) if sd else 0.0,
+        "deployed_pct": round(nonflat / n * 100, 1),
+        "hit_rate_pct": round(100 * correct / total_dir, 1) if total_dir else None,
+    }
+
+
 def incumbent_walkforward() -> dict:
-    """The current champion's recorded out-of-sample P&L (data/model.json), or
-    blend_v1 if there's no learned model yet. New models must beat this."""
+    """The current champion's out-of-sample bar that a challenger must clear.
+    Starts from the recorded walk-forward (data/model.json), or blend_v1 if
+    there's no learned model yet — but if the champion has racked up enough
+    *actual* live-graded calls, the bar is capped at whichever is worse
+    (walk-forward claim vs live reality). That keeps a backtest-era lucky
+    walk-forward from permanently blocking every future challenger."""
+    model_name = None
+    wf = None
     if MODEL_PATH.exists():
         try:
-            wf = json.loads(MODEL_PATH.read_text()).get("walkforward")
-            if wf and wf.get("mean_pnl_pct") is not None:
-                return wf
+            payload = json.loads(MODEL_PATH.read_text())
+            model_name = payload.get("model")
+            candidate = payload.get("walkforward")
+            if candidate and candidate.get("mean_pnl_pct") is not None:
+                wf = candidate
         except Exception:
             pass
-    return blend_v1_pnl()
+    if wf is None:
+        return blend_v1_pnl()
+
+    live = live_champion_score(model_name) if model_name else None
+    if live:
+        print(
+            f"  champion {model_name} live reality check: n={live['n']} "
+            f"pnl/trade={live['mean_pnl_pct']}% sharpe={live['sharpe_like']} hit={live['hit_rate_pct']}% "
+            f"(walk-forward claimed {wf.get('mean_pnl_pct')}% / sharpe {wf.get('sharpe_like')})"
+        )
+        wf = dict(wf)
+        wf["mean_pnl_pct"] = min(wf.get("mean_pnl_pct") or 0.0, live["mean_pnl_pct"])
+        wf["sharpe_like"] = min(wf.get("sharpe_like") or 0.0, live["sharpe_like"])
+    return wf
 
 
 # ---- main ------------------------------------------------------------

@@ -327,28 +327,28 @@
   "learned": {
     "model": "gbt_return_v1",
     "model_kind": "gbt",
-    "trained_at": "2026-09-14T14:10:45",
+    "trained_at": "2026-11-04T11:01:35",
     "walkforward": {
-      "mean_pnl_pct": 6.544,
-      "sharpe_like": 0.317,
-      "hit_rate_pct": 63.9,
-      "deployed_pct": 77.16,
-      "up_precision_pct": 66.46,
-      "down_precision_pct": 45.16
+      "mean_pnl_pct": 9.873,
+      "sharpe_like": 0.204,
+      "hit_rate_pct": 61.38,
+      "deployed_pct": 79.6,
+      "up_precision_pct": 64.98,
+      "down_precision_pct": 45.52
     },
     "incumbent": {
-      "mean_pnl_pct": 6.008,
-      "sharpe_like": 0.285,
-      "hit_rate_pct": 57.98,
-      "deployed_pct": 88.5,
-      "up_precision_pct": 66.08,
-      "down_precision_pct": 43.6
+      "mean_pnl_pct": -0.235,
+      "sharpe_like": -0.056,
+      "hit_rate_pct": 55.78,
+      "deployed_pct": 90.24,
+      "up_precision_pct": 63.16,
+      "down_precision_pct": 41.88
     },
     "activated": true,
     "span": [
-      "2022-07-11",
-      "2025-12-25"
+      "2022-08-31",
+      "2026-02-16"
     ],
-    "n_samples": 59118
+    "n_samples": 54864
   }
 }

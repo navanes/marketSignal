@@ -60,6 +60,8 @@ UNIVERSE: list[tuple[str, str, str]] = [
     ("QQQ", "Nasdaq 100", "etf"),
     ("IWM", "Russell 2000", "etf"),
     ("DIA", "Dow 30", "etf"),
+    ("GC=F", "Gold futures", "metals"),
+    ("SI=F", "Silver futures", "metals"),
     # Crypto — the ten liquid, non-stablecoin assets the bot can compare.
     # Stablecoins are intentionally excluded: a directional price model is not
     # meaningful for an asset designed to remain near one dollar.

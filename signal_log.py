@@ -94,6 +94,28 @@ def review_signal_calls() -> dict[str, Any]:
     return {"summary": summary, "wrong": wrong, "total_graded": len(rows)}
 
 
+def live_accuracy_caveat(days: int = 30) -> str:
+    """One line of honest context to attach to every signal message: what the
+    live model has actually scored lately, not just its training-time claim.
+    Pulled fresh from graded predictions each call — cheap, no caching needed."""
+    cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)).isoformat()
+    with sqlite3.connect(app.PREDICTIONS_DB) as conn:
+        rows = conn.execute(
+            "SELECT direction_correct FROM predictions WHERE status = 'evaluated' AND evaluated_at >= ?",
+            (cutoff,),
+        ).fetchall()
+    n = len(rows)
+    if n < MIN_REVIEW_SAMPLE:
+        return f"⚠️ Live accuracy: only {n} graded calls in the last {days}d — too few to trust yet. Research only, not financial advice."
+    correct = sum(1 for (c,) in rows if c)
+    acc = round(100 * correct / n, 1)
+    flag = "⚠️" if acc < 45 else "ℹ️"
+    return (
+        f"{flag} Live accuracy, last {days}d: {acc}% ({correct}/{n} graded calls correct). "
+        f"Research only, not financial advice — size any position to that track record."
+    )
+
+
 def format_wrong_call(row: dict[str, Any]) -> str:
     bits = [
         (

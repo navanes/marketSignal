@@ -81,6 +81,7 @@ def normalize_symbol(query: str) -> str:
         "NASDAQ": "^IXIC",
         "DOW": "^DJI",
         "GOLD": "GC=F",
+        "SILVER": "SI=F",
         "OIL": "CL=F",
         "BITCOIN": "BTC-USD",
         "BTC": "BTC-USD",
@@ -856,11 +857,14 @@ def apply_overlays(forecast: dict[str, Any], symbol: str, sentiment: dict[str, A
     except Exception:
         ftilt = {"tilt_pct": 0.0, "reason": ""}
     ntilt = news_tilt(sentiment)
+    mtilt = macro_news_tilt()
 
     raw = forecast.get("expected_return_pct")
     if not isinstance(raw, (int, float)):
         return forecast
-    total_tilt = max(-3.0, min(3.0, (ftilt["tilt_pct"] or 0.0) + (ntilt["tilt_pct"] or 0.0)))
+    total_tilt = max(
+        -3.0, min(3.0, (ftilt["tilt_pct"] or 0.0) + (ntilt["tilt_pct"] or 0.0) + (mtilt["tilt_pct"] or 0.0))
+    )
     adjusted = raw + total_tilt
 
     band = forecast.get("band_pct") or 1.0
@@ -871,7 +875,7 @@ def apply_overlays(forecast: dict[str, Any], symbol: str, sentiment: dict[str, A
         else "medium" if strength >= 1.0 else "low-medium" if strength >= 0.6 else "low"
     )
     price = quote.get("price")
-    overlay_bits = [b for b in (ftilt["reason"], ntilt["reason"]) if b]
+    overlay_bits = [b for b in (ftilt["reason"], ntilt["reason"], mtilt["reason"]) if b]
 
     forecast.update({
         "model_expected_return_pct": round(raw, 3),
@@ -883,11 +887,47 @@ def apply_overlays(forecast: dict[str, Any], symbol: str, sentiment: dict[str, A
         "overlays": {
             "fundamental_tilt_pct": ftilt["tilt_pct"],
             "news_tilt_pct": ntilt["tilt_pct"],
+            "macro_news_tilt_pct": mtilt["tilt_pct"],
             "total_tilt_pct": round(total_tilt, 2),
             "notes": overlay_bits,
         },
     })
     return forecast
+
+
+_MACRO_NEWS_CACHE: dict[str, Any] = {"at": 0.0, "value": None}
+_MACRO_NEWS_TTL = 60 * 60 * 6
+
+
+def macro_news_tilt() -> dict[str, Any]:
+    """Today's world/political news read (world_news.py), as a small bounded
+    nudge applied to every symbol — the same way a Fed decision or a tariff
+    headline affects the whole market, not just one ticker. Cached in-process
+    since world_news.py only logs once a day via its own scheduled scan."""
+    now = dt.datetime.now().timestamp()
+    if _MACRO_NEWS_CACHE["value"] is not None and now - _MACRO_NEWS_CACHE["at"] < _MACRO_NEWS_TTL:
+        return _MACRO_NEWS_CACHE["value"]
+    result = {"tilt_pct": 0.0, "reason": ""}
+    try:
+        log_path = DATA_DIR / "world_news_log.jsonl"
+        if log_path.exists():
+            last_line = log_path.read_text().splitlines()[-1]
+            latest = json.loads(last_line)
+            logged_at = dt.datetime.fromisoformat(latest["logged_at"])
+            if (dt.datetime.now(dt.timezone.utc) - logged_at).total_seconds() < 60 * 60 * 30:
+                score = latest.get("score") or 0.0
+                tilt = round(max(-0.8, min(0.8, score * 0.8)), 2)
+                reason = ""
+                if abs(tilt) >= 0.2:
+                    reason = f"world news {latest.get('label')}"
+                    if latest.get("political_mention"):
+                        reason += " (political)"
+                result = {"tilt_pct": tilt, "reason": reason}
+    except Exception:
+        pass
+    _MACRO_NEWS_CACHE["at"] = now
+    _MACRO_NEWS_CACHE["value"] = result
+    return result
 
 
 def _gbt_predict(model: dict[str, Any], x: list[float]) -> float:
@@ -1962,7 +2002,7 @@ def multi_horizon_signals(
             "label": HORIZON_LABELS.get(horizon_days, f"{horizon_days}d"),
             "action": signal.get("action"),
             "stance": signal.get("stance"),
-            "confidence": signal.get("confidence"),
+            "confidence": forecast_model.get("confidence"),
             "direction": forecast_model.get("direction"),
             "expected_return_pct": forecast_model.get("expected_return_pct"),
         })
@@ -1974,6 +2014,7 @@ def multi_horizon_signals(
         "price": quote.get("price"),
         "currency": quote.get("currency"),
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "price_date": series[-1]["date"] if series else None,
         "horizons": rows,
     }
 

@@ -1,0 +1,182 @@
+[
+  {
+    "generated_at": "2026-11-04T18:50:15+00:00",
+    "windows": {
+      "7d": {
+        "n": 800,
+        "band_accuracy_pct": 33.5,
+        "raw_sign_match_pct": 49.2,
+        "high_confidence_n": 340,
+        "high_confidence_accuracy_pct": 43.8
+      },
+      "30d": {
+        "n": 2250,
+        "band_accuracy_pct": 31.1,
+        "raw_sign_match_pct": 47.0,
+        "high_confidence_n": 649,
+        "high_confidence_accuracy_pct": 33.0
+      },
+      "60d": {
+        "n": 3888,
+        "band_accuracy_pct": 31.7,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 940,
+        "high_confidence_accuracy_pct": 37.0
+      },
+      "90d": {
+        "n": 3923,
+        "band_accuracy_pct": 31.7,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 940,
+        "high_confidence_accuracy_pct": 37.0
+      },
+      "all": {
+        "n": 3923,
+        "band_accuracy_pct": 31.7,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 940,
+        "high_confidence_accuracy_pct": 37.0
+      }
+    },
+    "champion": {
+      "model": "gbt_return_v1",
+      "trained_at": "2026-09-14T14:10:45",
+      "claimed_walkforward_hit_rate_pct": 63.9
+    }
+  },
+  {
+    "generated_at": "2026-11-04T18:53:27+00:00",
+    "windows": {
+      "7d": {
+        "n": 850,
+        "band_accuracy_pct": 33.6,
+        "raw_sign_match_pct": 49.1,
+        "high_confidence_n": 361,
+        "high_confidence_accuracy_pct": 43.5
+      },
+      "30d": {
+        "n": 2300,
+        "band_accuracy_pct": 31.2,
+        "raw_sign_match_pct": 47.0,
+        "high_confidence_n": 670,
+        "high_confidence_accuracy_pct": 33.1
+      },
+      "60d": {
+        "n": 3938,
+        "band_accuracy_pct": 31.8,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 961,
+        "high_confidence_accuracy_pct": 37.0
+      },
+      "90d": {
+        "n": 3973,
+        "band_accuracy_pct": 31.8,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 961,
+        "high_confidence_accuracy_pct": 37.0
+      },
+      "all": {
+        "n": 3973,
+        "band_accuracy_pct": 31.8,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 961,
+        "high_confidence_accuracy_pct": 37.0
+      }
+    },
+    "champion": {
+      "model": "gbt_return_v1",
+      "trained_at": "2026-09-14T14:10:45",
+      "claimed_walkforward_hit_rate_pct": 63.9
+    }
+  },
+  {
+    "generated_at": "2026-11-04T20:25:55+00:00",
+    "windows": {
+      "7d": {
+        "n": 950,
+        "band_accuracy_pct": 33.9,
+        "raw_sign_match_pct": 49.2,
+        "high_confidence_n": 408,
+        "high_confidence_accuracy_pct": 43.4
+      },
+      "30d": {
+        "n": 2400,
+        "band_accuracy_pct": 31.4,
+        "raw_sign_match_pct": 47.1,
+        "high_confidence_n": 717,
+        "high_confidence_accuracy_pct": 33.8
+      },
+      "60d": {
+        "n": 4038,
+        "band_accuracy_pct": 31.9,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 1008,
+        "high_confidence_accuracy_pct": 37.3
+      },
+      "90d": {
+        "n": 4073,
+        "band_accuracy_pct": 31.9,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 1008,
+        "high_confidence_accuracy_pct": 37.3
+      },
+      "all": {
+        "n": 4073,
+        "band_accuracy_pct": 31.9,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 1008,
+        "high_confidence_accuracy_pct": 37.3
+      }
+    },
+    "champion": {
+      "model": "gbt_return_v1",
+      "trained_at": "2026-11-04T11:01:35",
+      "claimed_walkforward_hit_rate_pct": 61.38
+    }
+  },
+  {
+    "generated_at": "2026-11-04T20:26:40+00:00",
+    "windows": {
+      "7d": {
+        "n": 1000,
+        "band_accuracy_pct": 33.9,
+        "raw_sign_match_pct": 49.1,
+        "high_confidence_n": 422,
+        "high_confidence_accuracy_pct": 43.4
+      },
+      "30d": {
+        "n": 2450,
+        "band_accuracy_pct": 31.4,
+        "raw_sign_match_pct": 47.1,
+        "high_confidence_n": 731,
+        "high_confidence_accuracy_pct": 33.9
+      },
+      "60d": {
+        "n": 4088,
+        "band_accuracy_pct": 31.9,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 1022,
+        "high_confidence_accuracy_pct": 37.4
+      },
+      "90d": {
+        "n": 4123,
+        "band_accuracy_pct": 31.9,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 1022,
+        "high_confidence_accuracy_pct": 37.4
+      },
+      "all": {
+        "n": 4123,
+        "band_accuracy_pct": 31.9,
+        "raw_sign_match_pct": 49.4,
+        "high_confidence_n": 1022,
+        "high_confidence_accuracy_pct": 37.4
+      }
+    },
+    "champion": {
+      "model": "gbt_return_v1",
+      "trained_at": "2026-11-04T11:01:35",
+      "claimed_walkforward_hit_rate_pct": 61.38
+    }
+  }
+]

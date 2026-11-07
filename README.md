@@ -64,3 +64,16 @@ Each successful research run with price history saves a 10-session prediction:
 - evaluated status after the app can compare the prediction with actual market data
 
 The Prediction Tracker dashboard shows total predictions, pending checks, direction accuracy, average target error, per-symbol accuracy, and recent prediction history. This is the first step toward calibration: the app can measure which signals worked before we add heavier machine learning.
+
+## On-demand Telegram ranked PDF
+
+Ask `/top10`, `/report`, `/report crypto`, or “top 10 most confident symbols”.
+The bot fetches fresh watchlist data and sends up to ten symbols in each BUY,
+HOLD and SELL table, with daily price dates, model confidence, measured 30-day
+historical accuracy and sample counts, and 30/90/180/365-calendar-day scenarios.
+Gold (`GC=F`) and silver (`SI=F`) are futures proxies in the shared watchlist.
+Unavailable/stale assets are explicitly excluded. Rankings use smoothed historical
+accuracy, model confidence, then expected return; these are research ranks, not
+calibrated probabilities of profit. Reports and their source JSON are saved in
+`data/ranked_reports/`. No forced buys when the model has no qualifying setups.
+Run locally with `python3 ranked_report.py`. Requires fpdf2 from requirements.txt.

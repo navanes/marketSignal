@@ -66,12 +66,7 @@ write_plist() {
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>
-	<dict>
-		<key>SuccessfulExit</key>
-		<false/>
-		<key>Crashed</key>
-		<true/>
-	</dict>
+	<true/>
 	<key>ThrottleInterval</key>
 	<integer>10</integer>
 	<key>StandardOutPath</key>

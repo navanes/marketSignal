@@ -47,6 +47,8 @@ HELP_TEXT = (
     "Or tap /menu to pick one from the watch list — and if it's not there, "
     "just type your own.\n\n"
     "Commands:\n"
+    "/top10 — fresh ranked PDF: buy, hold, sell; add crypto for crypto only\n"
+    "/report — same PDF, with 1/3/6/12-month forecasts\n"
     "/menu — browse the watch list by category\n"
     "/pick — my top pick across the whole watch list right now\n"
     "/signals — everything I watch, sorted Buy/Hold/Sell by how confident I am\n"
@@ -71,6 +73,7 @@ BUCKET_LABELS = {
     "industrials": "🏗️ Industrials",
     "etf": "📊 Indexes",
     "crypto": "₿ Crypto",
+    "metals": "Gold / Silver",
 }
 BUCKET_ORDER = list(dict.fromkeys(row[2] for row in UNIVERSE))
 SYMBOLS_BY_BUCKET: dict[str, list[tuple[str, str]]] = {}
@@ -624,8 +627,12 @@ def format_signals_reply() -> str:
     lines.append(
         "\nConfidence = blended real accuracy (live results + 5-year backtest), not just the model's own "
         "confidence word. 'Best' timeframe = every tracked horizon (daily to annual) where the call still "
-        "holds up, not just the 30-day one. Not financial advice."
+        "holds up, not just the 30-day one."
     )
+    try:
+        lines.append("\n" + signal_log.live_accuracy_caveat())
+    except Exception as exc:
+        print(f"live_accuracy_caveat failed: {exc}")
     return "\n".join(lines)
 
 
@@ -774,6 +781,14 @@ def format_track_reply() -> str:
     return "\n".join(lines)
 
 
+def wants_ranked_report(text: str) -> bool:
+    low = text.lower().strip()
+    command = low.split()[0].split("@")[0] if low else ""
+    return command in ("/top10", "/report", "/pdf") or bool(
+        re.search(r"\b(top\s*10|ten best|most confident|hottest|pdf|report)\b", low)
+    )
+
+
 def handle_text(token: str, chat_id: int, text: str) -> None:
     query = text.strip()
     if not query:
@@ -782,6 +797,12 @@ def handle_text(token: str, chat_id: int, text: str) -> None:
     try:
         if low in ("/start", "/help"):
             send_message(token, chat_id, HELP_TEXT)
+        elif wants_ranked_report(query):
+            from ranked_report import build_report
+            from weekly_report import send_document
+            send_message(token, chat_id, "Scanning fresh market data and building your ranked PDF. This can take a few minutes.")
+            path, summary = build_report(crypto_only="crypto" in low)
+            send_document(token, str(chat_id), path, summary)
         elif low == "/menu":
             send_message(token, chat_id, "Pick a category (or just type any ticker/name instead):", categories_keyboard())
         elif low == "/pick":
