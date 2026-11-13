@@ -136,6 +136,44 @@ def send_message(token: str, chat_id: int | str, text: str, reply_markup: dict[s
         print(f"send_message failed: {exc}")
 
 
+def send_audio(token: str, chat_id: int | str, path: Path, caption: str = "") -> None:
+    """Send a local audio file (e.g. a `say`-generated .m4a voice briefing)
+    as a Telegram audio message, multipart like sendDocument since the API
+    needs raw bytes, not a JSON body."""
+    import uuid
+
+    boundary = uuid.uuid4().hex
+    parts: list[bytes] = []
+
+    def add_field(name: str, value: str) -> None:
+        parts.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
+        )
+
+    add_field("chat_id", str(chat_id))
+    if caption:
+        add_field("caption", caption)
+    add_field("title", "MarketSignal Briefing")
+    parts.append(
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"{path.name}\"\r\n"
+        f"Content-Type: audio/mp4\r\n\r\n".encode("utf-8")
+    )
+    parts.append(path.read_bytes())
+    parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    body = b"".join(parts)
+
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendAudio",
+        data=body,
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        result = json.loads(response.read().decode("utf-8"))
+    if not result.get("ok"):
+        raise RuntimeError(f"sendAudio failed: {result}")
+
+
 def answer_callback(token: str, callback_query_id: str, text: str = "") -> None:
     try:
         call_api(token, "answerCallbackQuery", {"callback_query_id": callback_query_id, "text": text})

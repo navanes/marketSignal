@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sys
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -49,6 +50,14 @@ WATCHED_FIGURES = [
 ]
 
 GRADE_HORIZON_DAYS = 1  # grade same-day news against next trading day's SPY move
+
+# Midday pulse-check thresholds — crossing either one is "big enough to
+# interrupt your day about", separate from the once-a-day graded scan.
+SHOCK_SCORE_THRESHOLD = 0.35
+SHOCK_KEYWORDS = [
+    "crash", "plunge", "plummet", "selloff", "sell-off", "tumbles",
+    "recession", "resign", "resigns", "war", "invasion", "collapse",
+]
 
 
 def _raw_google_news(query: str, limit: int = 8) -> list[dict[str, str]]:
@@ -182,6 +191,58 @@ def accuracy_summary() -> dict[str, Any]:
     return {"n": n, "accuracy_pct": round(100 * correct / n, 1)}
 
 
+def check_shock() -> dict[str, Any] | None:
+    """Midday pulse check: gather fresh news and see if anything crosses a
+    'this is worth interrupting your day about' bar. Deliberately does NOT
+    write to LOG_PATH — the official once-a-day scan/grade pair stays the
+    only thing review_accuracy and app.macro_news_tilt() learn from; this is
+    just a same-day alert trigger."""
+    articles = gather_world_news()
+    sentiment = app.news_sentiment(articles)
+    political = app.detect_political_mention(articles, hours=6)
+    headlines = [a["title"] for a in articles[:8]]
+    shocked = abs(sentiment["score"]) >= SHOCK_SCORE_THRESHOLD or any(
+        kw in h.lower() for h in headlines for kw in SHOCK_KEYWORDS
+    )
+    if not shocked:
+        return None
+    return {
+        "score": sentiment["score"],
+        "label": sentiment["label"],
+        "political_mention": political,
+        "top_headlines": headlines,
+    }
+
+
+def alert() -> None:
+    """Run from the midday launchd job: if check_shock() finds something,
+    push an immediate Telegram text alert and a short spoken 'breaking'
+    voice briefing. Quiet (prints and exits) otherwise."""
+    shock = check_shock()
+    if not shock:
+        print("No shock-level news this check.")
+        return
+
+    import telegram_bot as tb
+    tb.load_env()
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_ALLOWED_CHAT_ID", "").strip()
+    if token and chat_id:
+        lines = [f"breaking news check: {shock['label']} (score {shock['score']:+.2f})"]
+        if shock.get("political_mention"):
+            lines.append(f"Flagged: \"{shock['political_mention']['headline']}\"")
+        lines.append("Headlines: " + " | ".join(shock["top_headlines"][:4]))
+        tb.send_message(token, chat_id, "\n".join(lines))
+
+    try:
+        import voice_briefing
+        path = voice_briefing.synthesize(voice_briefing.build_script("breaking"))
+        if token and chat_id:
+            voice_briefing.send(path, "Market Signal breaking news update.")
+    except Exception as exc:
+        print(f"voice briefing failed: {exc}")
+
+
 def report() -> str:
     summary = accuracy_summary()
     rows = _read_log()
@@ -209,8 +270,10 @@ def main() -> int:
         print(grade())
     elif cmd == "report":
         print(report())
+    elif cmd == "alert":
+        alert()
     else:
-        print("usage: world_news.py {scan|grade|report}")
+        print("usage: world_news.py {scan|grade|report|alert}")
         return 1
     return 0
 
